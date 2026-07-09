@@ -1,0 +1,26 @@
+{
+  "name": "Work Hub — щоденні задачі",
+  "short_name": "Work Hub",
+  "description": "Мобільний трекер щоденних робочих задач: рутина, розвиток бізнесу, статистика та цілі.",
+  "lang": "uk",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f7f9",
+  "theme_color": "#2ea3f2",
+  "icons": [
+    {
+      "src": "assets/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

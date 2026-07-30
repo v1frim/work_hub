@@ -409,9 +409,12 @@
     }
     // для регулярних без дати — стартуємо від сьогодні
     if (draft.recurrence.type !== 'once' && !draft.dueDate) draft.dueDate = S.todayStr();
+    // isNew треба зчитати ДО збереження (upsertTask проставляє id)
+    // і до closeSheet(), який обнуляє draft
+    const isNew = !draft.id;
     S.upsertTask(draft);
     closeSheet();
-    toast(draft.id ? 'Збережено' : 'Додано');
+    toast(isNew ? 'Додано' : 'Збережено');
     renderAll();
   }
 

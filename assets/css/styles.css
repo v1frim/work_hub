@@ -141,6 +141,33 @@ input, textarea, select { font-family: inherit; font-size: 16px; color: var(--te
 .sub.on .mini { background: var(--accent); border-color: var(--accent); }
 .sub.on span { text-decoration: line-through; color: var(--text-faint); }
 
+/* ---------- Перетягування задач між днями ---------- */
+/* довге натискання не має виділяти текст чи показувати меню iOS */
+.task { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+body.dragging { cursor: grabbing; }
+/* рядок, який тягнемо, ховаємо — замість нього видно пунктирне місце */
+.task.is-dragging { display: none; }
+
+/* копія рядка, що летить за пальцем */
+.drag-ghost {
+  position: fixed; z-index: 80; margin: 0; pointer-events: none;
+  background: var(--card); border-radius: 14px; border-bottom: none;
+  padding: 10px 12px; box-shadow: 0 12px 30px rgba(20, 30, 50, .28);
+  transform: scale(1.03); opacity: .98;
+}
+
+/* місце, куди впаде задача */
+.drop-ph {
+  border-radius: 10px; margin: 4px 0;
+  background: var(--accent-soft);
+  border: 1.5px dashed var(--accent);
+}
+/* порожня група теж має бути мішенню для падіння */
+.drop-empty { height: 44px; border-radius: 10px; }
+.group.is-temp .group-title { opacity: .45; }
+.group.drop-over .group-title { opacity: 1; }
+
 .empty { text-align: center; color: var(--text-faint); padding: 40px 20px; }
 .empty .big { font-size: 40px; margin-bottom: 8px; }
 

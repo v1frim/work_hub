@@ -297,6 +297,40 @@
     save();
   }
 
+  /* Перенести задачу в іншу групу (день) і поставити на позицію index.
+     Дата підбирається під групу; якщо задача вже в потрібному діапазоні
+     («На тижні» / «Потім»), її конкретний день не змінюємо. */
+  function moveTask(id, targetBucket, index) {
+    const task = getTask(id);
+    if (!task) return;
+    const t = todayStr();
+    const d = task.dueDate ? diffDays(task.dueDate, t) : null;
+
+    if (targetBucket === 'today') task.dueDate = t;
+    else if (targetBucket === 'tomorrow') task.dueDate = addDays(t, 1);
+    else if (targetBucket === 'week') { if (d === null || d < 2 || d > 7) task.dueDate = addDays(t, 2); }
+    else if (targetBucket === 'later') { if (d === null || d <= 7) task.dueDate = addDays(t, 8); }
+    task.bucket = targetBucket;
+
+    // Разова виконана задача при перетягуванні знову стає активною,
+    // інакше вона зникла б із групи, куди її щойно поклали.
+    if (!isRecurring(task) && task.done) {
+      task.done = false;
+      task.completedAt = null;
+      unlogTodayEvent(task.id);
+    }
+
+    // Перебудувати порядок усередині цільової групи
+    const inBucket = state.tasks
+      .filter((x) => x.id !== id && bucketOf(x) === targetBucket)
+      .sort((a, b) => (isDoneToday(a) - isDoneToday(b)) || (a.order - b.order));
+    const at = Math.max(0, Math.min(index, inBucket.length));
+    inBucket.splice(at, 0, task);
+    inBucket.forEach((x, i) => { x.order = i; });
+
+    save();
+  }
+
   function toggleSubtask(taskId, subId) {
     const task = getTask(taskId);
     if (!task) return;
@@ -440,7 +474,7 @@
     todayStr, addDays, humanDate, fromStr, toStr, diffDays,
     // задачі
     tasks: () => state.tasks,
-    getTask, upsertTask, deleteTask, toggleTask, toggleSubtask,
+    getTask, upsertTask, deleteTask, toggleTask, toggleSubtask, moveTask,
     isDoneToday, isRecurring, bucketOf, nextOccurrence,
     // цілі
     goals: () => state.goals,

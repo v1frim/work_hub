@@ -73,7 +73,7 @@
         const done = items.filter(S.isDoneToday).length;
         count = `<span class="group-count">${done}/${items.length}</span>`;
       }
-      html += `<section class="group"><div class="group-head">
+      html += `<section class="group" data-bucket="${g.id}"><div class="group-head">
         <div class="group-title ${g.id}">${g.title.toUpperCase()}</div>${count}</div>`;
       html += items.map(taskCard).join('');
       html += `</section>`;
@@ -153,6 +153,199 @@
     }
     const fill = $('#gauge-fill');
     if (fill) fill.setAttribute('stroke', ratio >= 1 ? '#34c759' : ratio >= 0.5 ? '#f5a623' : '#e2483d');
+  }
+
+  /* ============================================================
+     ПЕРЕТЯГУВАННЯ ЗАДАЧ МІЖ ГРУПАМИ (днями)
+
+     Стартує довгим натисканням (~280 мс), щоб не заважати звичайній
+     прокрутці списку. Далі за пальцем летить копія рядка, а місце падіння
+     показує пунктирна рамка.
+     ============================================================ */
+  const HOLD_MS = 280;      // скільки тримати, щоб «підняти» задачу
+  const MOVE_CANCEL = 12;   // зсув до старту = прокрутка, не перетягування
+
+  const DRAG = {
+    active: false, id: null, row: null, ghost: null, ph: null,
+    timer: null, startX: 0, startY: 0, offX: 0, offY: 0, lastY: 0, raf: null,
+  };
+  let suppressClickUntil = 0; // щоб після перетягування не відкривалась форма
+
+  function setupDragAndDrop() {
+    const screen = $('#screen-tasks');
+    screen.addEventListener('pointerdown', onDragDown);
+    document.addEventListener('pointermove', onDragMove, { passive: false });
+    document.addEventListener('pointerup', finishDrag);
+    document.addEventListener('pointercancel', abortDrag);
+    // На iOS лише preventDefault у НЕ-пасивному touchmove надійно
+    // зупиняє прокрутку сторінки під час перетягування.
+    document.addEventListener('touchmove', (e) => {
+      if (DRAG.active) e.preventDefault();
+    }, { passive: false });
+  }
+
+  function onDragDown(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // не починаємо перетягування з чекбокса, іконки підзадач чи самої підзадачі
+    if (e.target.closest('[data-toggle]') || e.target.closest('[data-subs]') || e.target.closest('[data-sub]')) return;
+    const row = e.target.closest('.task');
+    if (!row) return;
+
+    DRAG.row = row;
+    DRAG.id = row.dataset.task;
+    DRAG.startX = e.clientX;
+    DRAG.startY = e.clientY;
+    DRAG.lastY = e.clientY;
+    clearTimeout(DRAG.timer);
+    DRAG.timer = setTimeout(() => startDrag(e.clientX, e.clientY), HOLD_MS);
+  }
+
+  function startDrag(x, y) {
+    DRAG.timer = null;
+    const row = DRAG.row;
+    if (!row || !row.isConnected) return;
+
+    const r = row.getBoundingClientRect();
+    DRAG.active = true;
+    DRAG.offX = x - r.left;
+    DRAG.offY = y - r.top;
+
+    // копія рядка, що летить за пальцем
+    const ghost = row.cloneNode(true);
+    ghost.classList.add('drag-ghost');
+    ghost.style.width = r.width + 'px';
+    ghost.style.left = r.left + 'px';
+    ghost.style.top = r.top + 'px';
+    document.body.appendChild(ghost);
+    DRAG.ghost = ghost;
+
+    // місце, куди впаде задача
+    const ph = document.createElement('div');
+    ph.className = 'drop-ph';
+    ph.style.height = r.height + 'px';
+    row.parentNode.insertBefore(ph, row);
+    DRAG.ph = ph;
+
+    row.classList.add('is-dragging');
+    document.body.classList.add('dragging');
+    ensureAllGroups();          // щоб можна було кинути і в порожній день
+    if (navigator.vibrate) navigator.vibrate(15);
+    startAutoScroll();
+  }
+
+  // Під час перетягування показуємо всі 4 групи, навіть порожні
+  function ensureAllGroups() {
+    const root = $('#screen-tasks');
+    for (const g of BUCKETS) {
+      if (root.querySelector(`.group[data-bucket="${g.id}"]`)) continue;
+      const sec = document.createElement('section');
+      sec.className = 'group is-temp';
+      sec.dataset.bucket = g.id;
+      sec.innerHTML = `<div class="group-head"><div class="group-title ${g.id}">${g.title.toUpperCase()}</div></div>
+        <div class="drop-empty"></div>`;
+      root.appendChild(sec);
+    }
+  }
+
+  function onDragMove(e) {
+    if (!DRAG.active) {
+      // ще чекаємо на довге натискання — якщо палець поїхав, це прокрутка
+      if (DRAG.timer) {
+        const dx = Math.abs(e.clientX - DRAG.startX);
+        const dy = Math.abs(e.clientY - DRAG.startY);
+        if (dx > MOVE_CANCEL || dy > MOVE_CANCEL) { clearTimeout(DRAG.timer); DRAG.timer = null; DRAG.row = null; }
+      }
+      return;
+    }
+    e.preventDefault();
+    DRAG.lastY = e.clientY;
+    DRAG.ghost.style.left = (e.clientX - DRAG.offX) + 'px';
+    DRAG.ghost.style.top = (e.clientY - DRAG.offY) + 'px';
+    updateDropSpot(e.clientY);
+  }
+
+  // Куди саме впаде: визначаємо групу під пальцем і позицію в ній
+  function updateDropSpot(y) {
+    const groups = $$('#screen-tasks .group');
+    if (!groups.length) return;
+
+    let target = null;
+    for (const g of groups) {
+      const r = g.getBoundingClientRect();
+      if (y >= r.top && y <= r.bottom) { target = g; break; }
+    }
+    if (!target) {
+      // палець вище/нижче за всі групи — беремо крайню
+      const first = groups[0].getBoundingClientRect();
+      target = y < first.top ? groups[0] : groups[groups.length - 1];
+    }
+
+    $$('#screen-tasks .group').forEach((g) => g.classList.toggle('drop-over', g === target));
+
+    const rows = $$('.task:not(.is-dragging)', target);
+    let before = null;
+    for (const row of rows) {
+      const r = row.getBoundingClientRect();
+      if (y < r.top + r.height / 2) { before = row; break; }
+    }
+    if (before) target.insertBefore(DRAG.ph, before);
+    else target.appendChild(DRAG.ph);
+  }
+
+  // Автопрокрутка, коли тягнеш до краю екрана
+  function startAutoScroll() {
+    const step = () => {
+      if (!DRAG.active) return;
+      const y = DRAG.lastY;
+      const h = window.innerHeight;
+      let dy = 0;
+      if (y < 90) dy = -Math.ceil((90 - y) / 6);
+      else if (y > h - 130) dy = Math.ceil((y - (h - 130)) / 6);
+      if (dy) { window.scrollBy(0, dy); updateDropSpot(y); }
+      DRAG.raf = requestAnimationFrame(step);
+    };
+    DRAG.raf = requestAnimationFrame(step);
+  }
+
+  function finishDrag() {
+    if (DRAG.timer) { clearTimeout(DRAG.timer); DRAG.timer = null; DRAG.row = null; return; } // це був звичайний тап
+    if (!DRAG.active) return;
+
+    const group = DRAG.ph.closest('.group');
+    const bucket = group && group.dataset.bucket;
+    let index = 0;
+    if (group) {
+      for (const el of group.children) {
+        if (el === DRAG.ph) break;
+        if (el.classList.contains('task') && !el.classList.contains('is-dragging')) index++;
+      }
+    }
+    const id = DRAG.id;
+    cleanupDrag();
+    if (bucket && id) {
+      S.moveTask(id, bucket, index);
+      suppressClickUntil = Date.now() + 350;
+      renderTasks();
+      renderDrawer();
+      toast('Перенесено: ' + (BUCKETS.find((b) => b.id === bucket) || {}).title);
+    }
+  }
+
+  function abortDrag() {
+    if (DRAG.timer) { clearTimeout(DRAG.timer); DRAG.timer = null; DRAG.row = null; }
+    if (!DRAG.active) return;
+    cleanupDrag();
+    renderTasks();
+  }
+
+  function cleanupDrag() {
+    if (DRAG.raf) cancelAnimationFrame(DRAG.raf);
+    if (DRAG.ghost) DRAG.ghost.remove();
+    if (DRAG.ph) DRAG.ph.remove();
+    if (DRAG.row) DRAG.row.classList.remove('is-dragging');
+    $$('#screen-tasks .group').forEach((g) => g.classList.remove('drop-over'));
+    document.body.classList.remove('dragging');
+    Object.assign(DRAG, { active: false, id: null, row: null, ghost: null, ph: null, timer: null, raf: null });
   }
 
   /* ============================================================
@@ -547,6 +740,7 @@
 
     // Клік по екрану задач
     $('#screen-tasks').addEventListener('click', (e) => {
+      if (Date.now() < suppressClickUntil) return; // щойно перетягнули — не відкриваємо форму
       const toggle = e.target.closest('[data-toggle]');
       if (toggle) { S.toggleTask(toggle.dataset.toggle); renderTasks(); renderDrawer(); return; }
       // згорнути/розгорнути підзадачі — має перехоплюватись раніше за data-open
@@ -679,6 +873,7 @@
 
     bind();
     bindLate();
+    setupDragAndDrop();
     renderTasks();
     renderDrawer();
 

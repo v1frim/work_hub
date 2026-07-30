@@ -59,7 +59,7 @@ input, textarea, select { font-family: inherit; font-size: 16px; color: var(--te
 .topbar {
   position: sticky; top: 0; z-index: 30;
   display: flex; align-items: center; justify-content: space-between;
-  padding: calc(var(--safe-top) + 12px) 18px 12px;
+  padding: calc(var(--safe-top) + 8px) 16px 8px;
   background: color-mix(in srgb, var(--bg) 86%, transparent);
   backdrop-filter: saturate(1.4) blur(14px);
   -webkit-backdrop-filter: saturate(1.4) blur(14px);
@@ -72,59 +72,67 @@ input, textarea, select { font-family: inherit; font-size: 16px; color: var(--te
 .view-title { font-size: 15px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
 
 /* ---------- Контент ---------- */
-.screen { display: none; padding: 4px 16px 24px; max-width: 640px; margin: 0 auto; }
+/* Знизу лишаємо місце, щоб кнопка «+» не накривала останній рядок списку */
+.screen { display: none; padding: 2px 14px 90px; max-width: 640px; margin: 0 auto; }
 .screen.active { display: block; animation: fade .18s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 /* ---------- Групи задач ---------- */
-.group { margin-top: 22px; }
-.group-head { display: flex; align-items: center; gap: 12px; margin: 0 4px 10px; }
-.group-title { font-size: 30px; font-weight: 900; letter-spacing: .5px; line-height: 1; }
+.group { margin-top: 13px; }
+.group:first-child { margin-top: 4px; }
+.group-head { display: flex; align-items: center; gap: 10px; margin: 0 2px 4px; }
+.group-title { font-size: 26px; font-weight: 900; letter-spacing: .4px; line-height: 1; }
 .group-title.today { color: var(--today); }
 .group-title.tomorrow { color: var(--tomorrow); }
 .group-title.week, .group-title.later { color: var(--text-faint); }
 .group-count {
-  font-size: 13px; font-weight: 700; color: var(--text-dim);
-  background: var(--card-2); border-radius: 999px; padding: 3px 11px;
+  font-size: 12px; font-weight: 700; color: var(--text-dim);
+  background: var(--card-2); border-radius: 999px; padding: 2px 9px;
 }
 
-/* ---------- Картка задачі ---------- */
+/* ---------- Рядок задачі (компактний: усе в один рядок) ---------- */
 .task {
-  display: flex; align-items: flex-start; gap: 14px;
-  padding: 13px 6px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 8px 2px; border-bottom: 1px solid var(--border);
 }
 .task:last-child { border-bottom: none; }
 .task .check {
-  flex: 0 0 auto; width: 26px; height: 26px; margin-top: 1px;
-  border-radius: 8px; border: 2.5px solid var(--c, var(--accent));
+  flex: 0 0 auto; width: 22px; height: 22px; margin-top: 1px;
+  border-radius: 7px; border: 2.2px solid var(--c, var(--accent));
   display: grid; place-items: center; background: transparent;
   transition: background .15s, transform .1s;
 }
-.task .check:active { transform: scale(.9); }
+.task .check:active { transform: scale(.88); }
 .task .check.on { background: var(--c, var(--accent)); }
 .task .check svg { opacity: 0; }
 .task .check.on svg { opacity: 1; }
 
 .task .body { flex: 1 1 auto; min-width: 0; }
-.task .title { font-size: 17px; font-weight: 500; word-wrap: break-word; }
-.task.done-today .title { color: var(--text-faint); text-decoration: line-through; }
-.task .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 5px; }
-.task .badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 12px; font-weight: 600; color: var(--text-dim);
-  background: var(--card-2); border-radius: 999px; padding: 2px 9px;
-}
-.task .badge.recur { color: var(--accent); }
-.task .badge.biz { color: #2ea3f2; }
-.task .badge.subs { color: var(--text-dim); }
-.task .day-tag { margin-left: auto; color: var(--text-faint); font-size: 14px; font-weight: 600; white-space: nowrap; }
-.task .remind { color: var(--text-faint); font-size: 13px; margin-top: 4px; display: flex; align-items: center; gap: 5px; }
 
-/* Підзадачі */
-.subs { margin: 8px 0 2px; padding-left: 2px; }
-.sub { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 15px; color: var(--text-dim); }
+/* Назва + маркери течуть як звичайний текст, тому маркери стають
+   одразу після останнього слова — без окремого рядка під задачею. */
+.task .line { font-size: 16px; line-height: 1.3; }
+.task .title { font-weight: 500; overflow-wrap: break-word; }
+.task.done-today .title { color: var(--text-faint); text-decoration: line-through; }
+
+.task .marks { white-space: nowrap; margin-left: 6px; }
+.task .mark {
+  display: inline-flex; align-items: center; gap: 2px; vertical-align: -2px;
+  color: var(--text-faint); font-size: 11px; font-weight: 600; margin-right: 5px;
+}
+.task .mark.recur { color: var(--text-faint); }
+.task .mark.biz { color: var(--accent); }
+.task .mark.subs { color: var(--text-dim); padding: 2px 3px; margin: -2px 2px -2px -3px; border-radius: 5px; }
+.task .mark.subs.on { color: var(--accent); background: var(--accent-soft); }
+
+.task .day-tag { float: right; color: var(--text-faint); font-size: 13px; font-weight: 600; white-space: nowrap; margin-left: 8px; }
+.task .remind { color: var(--text-faint); font-size: 12px; margin-top: 1px; display: flex; align-items: center; gap: 4px; }
+
+/* Підзадачі — згорнуті за замовчуванням, розгортаються по іконці */
+.subs { margin: 4px 0 1px; padding-left: 1px; }
+.sub { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 14px; color: var(--text-dim); }
 .sub .mini {
-  width: 19px; height: 19px; border-radius: 6px; border: 2px solid var(--text-faint);
+  width: 17px; height: 17px; border-radius: 5px; border: 2px solid var(--text-faint);
   display: grid; place-items: center; flex: 0 0 auto;
 }
 .sub.on .mini { background: var(--accent); border-color: var(--accent); }

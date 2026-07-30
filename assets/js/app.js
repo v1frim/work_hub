@@ -14,8 +14,8 @@
   const ICON = {
     check: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4 4L19 6.5"/></svg>',
     checkMini: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4 4L19 6.5"/></svg>',
-    recur: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/></svg>',
-    subs: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+    recur: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/></svg>',
+    subs: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>',
     bell: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>',
     flag: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 15V3h13l-2 4 2 4H4M4 21v-6"/></svg>',
   };
@@ -30,6 +30,7 @@
   /* ---------- Глобальний UI-стан ---------- */
   let currentTab = 'tasks';
   let listFilter = null; // null = усі списки
+  const expandedTasks = new Set(); // які складні задачі показують підзадачі
 
   function toast(msg) {
     const t = $('#toast');
@@ -89,14 +90,22 @@
     const list = S.list(t.listId);
     const doneToday = S.isDoneToday(t);
     const recurring = S.isRecurring(t);
+    const hasSubs = t.complexity === 'complex' && t.subtasks && t.subtasks.length;
+    const open = expandedTasks.has(t.id);
 
-    // мета-бейджі
-    const badges = [];
-    if (recurring) badges.push(`<span class="badge recur">${ICON.recur}${S.RECUR[t.recurrence.type].label}</span>`);
-    if (t.kind === 'business') badges.push(`<span class="badge biz">${ICON.flag}Бізнес</span>`);
-    if (t.complexity === 'complex' && t.subtasks && t.subtasks.length) {
+    // Компактні маркери — іконки в тому ж рядку, що й назва (без окремого рядка).
+    // Текст лишається у підказці (title), щоб зміст не втрачався.
+    const marks = [];
+    if (recurring) {
+      marks.push(`<span class="mark recur" title="${esc(S.RECUR[t.recurrence.type].label)}">${ICON.recur}</span>`);
+    }
+    if (t.kind === 'business') {
+      marks.push(`<span class="mark biz" title="Розвиток бізнесу">${ICON.flag}</span>`);
+    }
+    if (hasSubs) {
       const d = t.subtasks.filter((s) => s.done).length;
-      badges.push(`<span class="badge subs">${ICON.subs}${d}/${t.subtasks.length}</span>`);
+      marks.push(`<span class="mark subs ${open ? 'on' : ''}" data-subs="${t.id}"
+        title="Підзадачі: ${d}/${t.subtasks.length}">${ICON.subs}${d}/${t.subtasks.length}</span>`);
     }
 
     // мітка дня для тижневих/пізніх
@@ -107,9 +116,9 @@
       dayTag = `<span class="day-tag">${b === 'later' ? S.humanDate(t.dueDate) : wd}</span>`;
     }
 
-    // підзадачі (розгорнуті для складних)
+    // підзадачі — лише коли розгорнуто
     let subs = '';
-    if (t.complexity === 'complex' && t.subtasks && t.subtasks.length) {
+    if (hasSubs && open) {
       subs = `<div class="subs">` + t.subtasks.map((s) => `
         <div class="sub ${s.done ? 'on' : ''}" data-sub="${s.id}" data-task="${t.id}">
           <div class="mini">${s.done ? ICON.checkMini : ''}</div><span>${esc(s.title)}</span>
@@ -120,9 +129,9 @@
 
     return `<div class="task ${doneToday ? 'done-today' : ''}" data-task="${t.id}">
       <button class="check ${doneToday ? 'on' : ''}" data-toggle="${t.id}" style="--c:${list.color}">${doneToday ? ICON.check : ''}</button>
-      <div class="body" data-open="${t.id}">
-        <div class="title">${esc(t.title)}</div>
-        ${badges.length || dayTag ? `<div class="meta">${badges.join('')}${dayTag}</div>` : ''}
+      <div class="body">
+        <div class="line" data-open="${t.id}">${dayTag}<span class="title">${esc(t.title)}</span>${
+          marks.length ? `<span class="marks">${marks.join('')}</span>` : ''}</div>
         ${remind}
         ${subs}
       </div>
@@ -537,6 +546,14 @@
     $('#screen-tasks').addEventListener('click', (e) => {
       const toggle = e.target.closest('[data-toggle]');
       if (toggle) { S.toggleTask(toggle.dataset.toggle); renderTasks(); renderDrawer(); return; }
+      // згорнути/розгорнути підзадачі — має перехоплюватись раніше за data-open
+      const subsBtn = e.target.closest('[data-subs]');
+      if (subsBtn) {
+        const id = subsBtn.dataset.subs;
+        if (expandedTasks.has(id)) expandedTasks.delete(id); else expandedTasks.add(id);
+        renderTasks();
+        return;
+      }
       const sub = e.target.closest('[data-sub]');
       if (sub) { S.toggleSubtask(sub.dataset.task, sub.dataset.sub); renderTasks(); return; }
       const open = e.target.closest('[data-open]');

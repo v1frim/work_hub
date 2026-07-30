@@ -664,8 +664,43 @@
 
     // PWA service worker (тільки коли обслуговується через http/https)
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      setupServiceWorker();
     }
+  }
+
+  /* Реєстрація воркера + автоматичне підхоплення нових версій.
+     Важливо для застосунку на головному екрані: він може «жити» днями,
+     тому перевіряємо оновлення при кожному відкритті/поверненні у застосунок. */
+  function setupServiceWorker() {
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      const check = () => reg.update().catch(() => {});
+      check();
+      // при поверненні до застосунку
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+      window.addEventListener('focus', check);
+      // і раз на годину, якщо застосунок відкритий довго
+      setInterval(check, 60 * 60 * 1000);
+
+      // новий воркер уже чекає — попросимо його стати активним
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', () => {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            nw.postMessage('skip-waiting');
+          }
+        });
+      });
+    }).catch(() => {});
+
+    // Коли нова версія перебирає керування — один раз перезавантажуємось,
+    // щоб користувач бачив свіжий код (дані в localStorage не зачіпаються).
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

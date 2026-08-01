@@ -17,6 +17,7 @@
     recur: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/></svg>',
     subs: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>',
     bell: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>',
+    cal: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
     flag: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 15V3h13l-2 4 2 4H4M4 21v-6"/></svg>',
   };
 
@@ -227,6 +228,23 @@
     root.innerHTML = html;
   }
 
+  /* Підпис під назвою: коли саме задача має відбутися.
+     Для «На тижні» та «Потім» показуємо конкретну дату (лише буква дня
+     праворуч не каже, яке це число), для сьогодні/завтра — лише час,
+     бо день уже написаний у заголовку групи. */
+  function whenNote(t, bucket) {
+    const showDate = (bucket === 'week' || bucket === 'later') && t.dueDate;
+    const time = t.remindAt;
+    if (!showDate && !time) return '';
+
+    let text = '';
+    if (showDate && time) text = `${S.humanDate(t.dueDate)} о ${esc(time)}`;
+    else if (showDate) text = S.humanDate(t.dueDate);
+    else text = `о ${esc(time)}`;
+
+    return `<div class="remind">${time ? ICON.bell : ICON.cal} ${text}</div>`;
+  }
+
   function taskCard(t) {
     const cx = S.COMPLEXITY[t.complexity] || S.COMPLEXITY.easy;
     const doneToday = S.isDoneToday(t);
@@ -246,12 +264,11 @@
         title="Підзадачі: ${d}/${t.subtasks.length}">${ICON.subs}${d}/${t.subtasks.length}</span>`);
     }
 
-    // мітка дня для тижневих/пізніх
+    // мітка дня тижня праворуч — для швидкого перегляду
     let dayTag = '';
     const b = S.bucketOf(t);
     if ((b === 'week' || b === 'later') && t.dueDate) {
-      const wd = S.WEEKDAYS_SHORT[S.fromStr(t.dueDate).getDay()];
-      dayTag = `<span class="day-tag">${b === 'later' ? S.humanDate(t.dueDate) : wd}</span>`;
+      dayTag = `<span class="day-tag">${S.WEEKDAYS_SHORT[S.fromStr(t.dueDate).getDay()]}</span>`;
     }
 
     // підзадачі — лише коли розгорнуто
@@ -263,7 +280,7 @@
         </div>`).join('') + `</div>`;
     }
 
-    const remind = t.remindAt ? `<div class="remind">${ICON.bell} ${t.dueDate ? S.humanDate(t.dueDate) + ' о ' : ''}${esc(t.remindAt)}</div>` : '';
+    const remind = whenNote(t, b);
 
     // колір чекбокса = складність (зелений/помаранчевий/червоний)
     return `<div class="task ${doneToday ? 'done-today' : ''}" data-task="${t.id}">

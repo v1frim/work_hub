@@ -92,8 +92,10 @@ body.area-personal .group-title.tomorrow { color: #b79df8; }
 body.area-personal .fab { background: #8b5cf6; box-shadow: 0 10px 24px rgba(139, 92, 246, .45); }
 
 /* ---------- Контент ---------- */
-/* Знизу лишаємо місце, щоб кнопка «+» не накривала останній рядок списку */
-.screen { display: none; padding: 2px 14px 90px; max-width: 640px; margin: 0 auto; }
+/* Знизу лишаємо місце, щоб кнопка «+» не накривала останній рядок списку.
+   touch-action: pan-y — вертикальну прокрутку лишаємо браузеру, а
+   горизонтальний жест обробляємо самі (перемикання розділів). */
+.screen { display: none; padding: 2px 14px 90px; max-width: 640px; margin: 0 auto; touch-action: pan-y; }
 .screen.active { display: block; animation: fade .18s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 

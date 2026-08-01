@@ -42,6 +42,130 @@
     renderDrawer();
   }
 
+  /* ============================================================
+     ПЕРЕМИКАННЯ РОЗДІЛІВ ГОРИЗОНТАЛЬНИМ СВАЙПОМ
+
+     Свайп вліво → наступний розділ (Робота → Особисте),
+     вправо → попередній. Вертикальна прокрутка та перетягування
+     задач мають пріоритет: жест зараховується лише коли рух
+     явно горизонтальний.
+     ============================================================ */
+  const AREA_ORDER = ['work', 'personal'];
+  const SWIPE_MIN = 55;     // мінімальний зсув пальця для перемикання
+  const SWIPE_RATIO = 1.4;  // наскільки горизонталь має переважати вертикаль
+  const SWIPE_DECIDE = 10;  // після якого зсуву вирішуємо: свайп чи прокрутка
+
+  const SWIPE = { tracking: false, decided: null, startX: 0, startY: 0, dx: 0 };
+
+  function setupAreaSwipe() {
+    document.addEventListener('pointerdown', onSwipeDown);
+    document.addEventListener('pointermove', onSwipeMove, { passive: false });
+    document.addEventListener('pointerup', onSwipeUp);
+    document.addEventListener('pointercancel', resetSwipe);
+    // на iOS лише не-пасивний touchmove надійно блокує власну прокрутку браузера
+    document.addEventListener('touchmove', (e) => {
+      if (SWIPE.decided === 'swipe') e.preventDefault();
+    }, { passive: false });
+  }
+
+  function onSwipeDown(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // не заважаємо формі, бічному меню та самому перемикачу
+    if (e.target.closest('#sheet') || e.target.closest('#drawer') || e.target.closest('#area-switch')) return;
+    if ($('#sheet').classList.contains('open') || $('#drawer').classList.contains('open')) return;
+    SWIPE.tracking = true;
+    SWIPE.decided = null;
+    SWIPE.startX = e.clientX;
+    SWIPE.startY = e.clientY;
+    SWIPE.dx = 0;
+  }
+
+  function onSwipeMove(e) {
+    if (!SWIPE.tracking) return;
+    if (DRAG.active) { resetSwipe(); return; } // тягнемо задачу — не наш жест
+
+    const dx = e.clientX - SWIPE.startX;
+    const dy = e.clientY - SWIPE.startY;
+
+    if (!SWIPE.decided) {
+      if (Math.abs(dy) > SWIPE_DECIDE && Math.abs(dy) >= Math.abs(dx)) { resetSwipe(); return; } // прокрутка
+      if (Math.abs(dx) > SWIPE_DECIDE && Math.abs(dx) > Math.abs(dy) * SWIPE_RATIO) {
+        SWIPE.decided = 'swipe';
+        if (DRAG.timer) { clearTimeout(DRAG.timer); DRAG.timer = null; } // скасувати «підйом» задачі
+      } else return;
+    }
+
+    e.preventDefault();
+    SWIPE.dx = dx;
+    // екран трохи їде за пальцем; біля межі (немає куди гортати) — сильніше гальмує
+    const screen = $('.screen.active');
+    if (screen) {
+      const damp = nextArea(dx) ? 0.35 : 0.12;
+      screen.style.transition = 'none';
+      screen.style.transform = `translateX(${dx * damp}px)`;
+    }
+  }
+
+  function onSwipeUp() {
+    if (!SWIPE.tracking) return;
+    const dx = SWIPE.dx;
+    const decided = SWIPE.decided;
+    const target = nextArea(dx);
+    resetSwipe();
+
+    // Після жесту браузер ще шле click — інакше він відкрив би форму задачі,
+    // над якою проїхав палець.
+    if (decided === 'swipe') suppressClickUntil = Date.now() + 350;
+
+    const screen = $('.screen.active');
+    if (decided === 'swipe' && Math.abs(dx) >= SWIPE_MIN && target) {
+      slideToArea(target, Math.sign(dx));
+    } else if (screen) {
+      screen.style.transition = 'transform .2s cubic-bezier(.2,.8,.2,1)';
+      screen.style.transform = '';
+      setTimeout(() => { screen.style.transition = ''; }, 220);
+    }
+  }
+
+  // Куди веде свайп: dx < 0 (вліво) — далі по списку розділів, dx > 0 — назад
+  function nextArea(dx) {
+    const i = AREA_ORDER.indexOf(S.area());
+    const j = i + (dx < 0 ? 1 : -1);
+    return AREA_ORDER[j] || null;
+  }
+
+  function resetSwipe() {
+    SWIPE.tracking = false;
+    SWIPE.decided = null;
+    SWIPE.dx = 0;
+  }
+
+  // Плавно замінити вміст: старий екран іде за напрямком свайпу, новий приходить з іншого боку
+  function slideToArea(area, sign) {
+    const out = $('.screen.active');
+    if (!out) { setArea(area); return; }
+    if (navigator.vibrate) navigator.vibrate(8);
+
+    out.style.transition = 'transform .14s ease-out, opacity .14s ease-out';
+    out.style.transform = `translateX(${sign * 45}px)`;
+    out.style.opacity = '0';
+
+    setTimeout(() => {
+      setArea(area);
+      const el = $('.screen.active');
+      if (!el) return;
+      el.style.transition = 'none';
+      el.style.transform = `translateX(${-sign * 45}px)`;
+      el.style.opacity = '0';
+      requestAnimationFrame(() => {
+        el.style.transition = 'transform .18s ease-out, opacity .18s ease-out';
+        el.style.transform = 'translateX(0)';
+        el.style.opacity = '1';
+        setTimeout(() => { el.style.transition = ''; el.style.transform = ''; el.style.opacity = ''; }, 200);
+      });
+    }, 140);
+  }
+
   function toast(msg) {
     const t = $('#toast');
     t.textContent = msg;
@@ -747,6 +871,7 @@
 
     // Клік по екрану цілей
     $('#screen-goals').addEventListener('click', (e) => {
+      if (Date.now() < suppressClickUntil) return; // щойно був свайп
       const ms = e.target.closest('[data-ms]');
       if (ms) { S.toggleMilestone(ms.dataset.goal, ms.dataset.ms); renderGoals(); return; }
       const eg = e.target.closest('[data-editgoal]');
@@ -852,6 +977,7 @@
     bind();
     bindLate();
     setupDragAndDrop();
+    setupAreaSwipe();
     setArea(S.area()); // відновлює обраний розділ і малює список
 
     // PWA service worker (тільки коли обслуговується через http/https)

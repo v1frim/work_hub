@@ -11,23 +11,17 @@
 
   /* ---------- Довідники ---------- */
 
-  // Списки (кольорові категорії, як у бічному меню на скріншоті)
-  const DEFAULT_LISTS = [
-    { id: 'personal', name: 'Особисте', color: '#f5a623' },
-    { id: 'other', name: 'Інше', color: '#e2483d' },
-    { id: 'business', name: 'Розвиток бізнесу', color: '#3aa8f0' },
-    { id: 'ops', name: 'Операційка', color: '#8b5cf6' },
-    { id: 'regular', name: 'Регулярні', color: '#34c759' },
-  ];
-
-  // Осі класифікації (для фільтрів і статистики)
-  const KINDS = {
-    ops: { label: 'Операційна', short: 'Опер.' },
-    business: { label: 'Розвиток бізнесу', short: 'Бізнес' },
+  // Два розділи застосунку — між ними перемикаємось угорі екрана
+  const AREAS = {
+    work: { label: 'Робота', accent: '#2ea3f2' },
+    personal: { label: 'Особисте', accent: '#8b5cf6' },
   };
+
+  // Складність — єдина вісь класифікації (замість колишніх «тип» і «складність»)
   const COMPLEXITY = {
-    simple: { label: 'Проста', hint: 'Зробив і забув' },
-    complex: { label: 'Складна', hint: 'З підзадачами' },
+    easy: { label: 'Легке', color: '#34c759' },
+    medium: { label: 'Середнє', color: '#f5a623' },
+    hard: { label: 'Складне', color: '#e2483d' },
   };
   const RECUR = {
     once: { label: 'Разова' },
@@ -81,12 +75,11 @@
 
   function blankState() {
     return {
-      version: 1,
-      lists: DEFAULT_LISTS.map((l) => ({ ...l })),
+      version: 2,
       tasks: [],
       goals: [],
-      events: [], // журнал виконань {id, date, ts, taskId, title, kind, listId, complexity, recurring}
-      settings: { seeded: false },
+      events: [], // журнал виконань {id, date, ts, taskId, title, area, complexity, recurring}
+      settings: { seeded: false, area: 'work' },
     };
   }
 
@@ -95,19 +88,51 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return seedIfEmpty(blankState());
       const parsed = JSON.parse(raw);
-      // Мінімальна міграція/захист
       const base = blankState();
-      return Object.assign(base, parsed, {
-        lists: parsed.lists && parsed.lists.length ? parsed.lists : base.lists,
+      const s = Object.assign(base, parsed, {
         tasks: parsed.tasks || [],
         goals: parsed.goals || [],
         events: parsed.events || [],
         settings: Object.assign(base.settings, parsed.settings || {}),
       });
+      return migrate(s);
     } catch (e) {
       console.warn('Не вдалося прочитати сховище, стан скинуто.', e);
       return seedIfEmpty(blankState());
     }
+  }
+
+  /* Перехід зі старої моделі (списки + тип ops/business + проста/складна)
+     на нову (розділ Робота/Особисте + складність легке/середнє/складне).
+     Записи користувача зберігаються — лише переносяться в нові поля. */
+  function migrate(s) {
+    if (s.version >= 2 && s.tasks.every((t) => t.area)) return s;
+
+    // старий список «Особисте» → особистий розділ, решта → робота
+    const areaOf = (o) => (o.area ? o.area : (o.listId === 'personal' ? 'personal' : 'work'));
+    // проста → легке, складна → складне (середнє зʼявляється лише вручну)
+    const cxOf = (o) => {
+      if (COMPLEXITY[o.complexity]) return o.complexity;
+      if (o.complexity === 'complex') return 'hard';
+      return 'easy';
+    };
+
+    for (const t of s.tasks) {
+      t.area = areaOf(t);
+      t.complexity = cxOf(t);
+      delete t.kind; delete t.listId;
+    }
+    for (const g of s.goals) {
+      if (!g.area) g.area = 'work';
+    }
+    for (const e of s.events) {
+      e.area = areaOf(e);
+      e.complexity = cxOf(e);
+      delete e.kind; delete e.listId;
+    }
+    delete s.lists;
+    s.version = 2;
+    return s;
   }
 
   function save() {
@@ -124,38 +149,45 @@
     if (s.settings.seeded) return s;
     const t = todayStr();
     const mk = (o) => Object.assign({
-      id: uid(), title: '', note: '', listId: 'ops', kind: 'ops',
-      complexity: 'simple', subtasks: [], recurrence: { type: 'once' },
+      id: uid(), title: '', note: '', area: 'work',
+      complexity: 'easy', subtasks: [], recurrence: { type: 'once' },
       bucket: 'today', dueDate: null, remindAt: null, done: false,
       completedAt: null, createdAt: new Date().toISOString(), order: 0,
     }, o);
 
     s.tasks = [
-      mk({ title: 'План дій на день', listId: 'business', kind: 'business', complexity: 'complex', bucket: 'today',
+      // --- робочі ---
+      mk({ title: 'План дій на день', complexity: 'medium', bucket: 'today',
         subtasks: [
           { id: uid(), title: 'Переглянути календар', done: true },
           { id: uid(), title: 'Визначити 3 пріоритети', done: false },
         ] }),
-      mk({ title: 'Додати парасольки та підголівники «Нехай Бог» до Розетки', listId: 'business', kind: 'business', bucket: 'today', complexity: 'simple' }),
-      mk({ title: 'Закинути в план постів', listId: 'business', kind: 'business', bucket: 'today', complexity: 'complex',
+      mk({ title: 'Додати парасольки та підголівники «Нехай Бог» до Розетки', bucket: 'today', complexity: 'medium' }),
+      mk({ title: 'Закинути в план постів', bucket: 'today', complexity: 'hard',
         subtasks: [{ id: uid(), title: 'Ідея посту', done: false }, { id: uid(), title: 'Візуал', done: false }] }),
-      mk({ title: 'Податки', listId: 'regular', kind: 'ops', recurrence: { type: 'monthly', dayOfMonth: 20 }, dueDate: t, bucket: 'today' }),
-      mk({ title: 'Передоплати', listId: 'ops', kind: 'ops', recurrence: { type: 'daily' }, dueDate: addDays(t, 1), bucket: 'tomorrow' }),
-      mk({ title: 'Замовити з Temu', listId: 'ops', kind: 'ops', recurrence: { type: 'weekly', weekdays: [5] }, dueDate: nextWeekdayDate(t, [5]), bucket: 'week' }),
-      mk({ title: 'Пост', listId: 'ops', kind: 'business', recurrence: { type: 'weekly', weekdays: [6] }, dueDate: nextWeekdayDate(t, [6]), remindAt: '19:30', bucket: 'week' }),
-      mk({ title: 'Комуналка', listId: 'ops', kind: 'ops', recurrence: { type: 'monthly', dayOfMonth: 15 }, dueDate: addDays(t, 6), bucket: 'later' }),
-      mk({ title: 'Пробити чеки за минулий місяць (Приват) та 2924', listId: 'regular', kind: 'ops', recurrence: { type: 'monthly', dayOfMonth: 1 }, dueDate: addDays(t, 7), bucket: 'later' }),
+      mk({ title: 'Податки', complexity: 'hard', recurrence: { type: 'monthly', dayOfMonth: 20 }, dueDate: t, bucket: 'today' }),
+      mk({ title: 'Передоплати', recurrence: { type: 'daily' }, dueDate: addDays(t, 1), bucket: 'tomorrow' }),
+      mk({ title: 'Замовити з Temu', recurrence: { type: 'weekly', weekdays: [5] }, dueDate: nextWeekdayDate(t, [5]), bucket: 'week' }),
+      mk({ title: 'Пост', complexity: 'medium', recurrence: { type: 'weekly', weekdays: [6] }, dueDate: nextWeekdayDate(t, [6]), remindAt: '19:30', bucket: 'week' }),
+      mk({ title: 'Пробити чеки за минулий місяць (Приват) та 2924', complexity: 'medium', recurrence: { type: 'monthly', dayOfMonth: 1 }, dueDate: addDays(t, 7), bucket: 'later' }),
+      // --- особисті ---
+      mk({ area: 'personal', title: 'Зарядка', recurrence: { type: 'daily' }, dueDate: t, bucket: 'today' }),
+      mk({ area: 'personal', title: 'Комуналка', complexity: 'medium', recurrence: { type: 'monthly', dayOfMonth: 15 }, dueDate: addDays(t, 6), bucket: 'later' }),
+      mk({ area: 'personal', title: 'Утеплення стін', complexity: 'hard', bucket: 'week', dueDate: addDays(t, 3),
+        subtasks: [{ id: uid(), title: 'Порахувати матеріали', done: false }, { id: uid(), title: 'Знайти бригаду', done: false }] }),
     ].map((task, i) => Object.assign(task, { order: i }));
 
     s.goals = [
-      { id: uid(), title: 'Вийти на 300 замовлень/міс', note: 'Масштабування продажів', targetDate: addDays(t, 90), createdAt: new Date().toISOString(), done: false,
+      { id: uid(), area: 'work', title: 'Вийти на 300 замовлень/міс', note: 'Масштабування продажів', targetDate: addDays(t, 90), createdAt: new Date().toISOString(), done: false,
         milestones: [
           { id: uid(), title: 'Розширити асортимент', done: true },
           { id: uid(), title: 'Налаштувати рекламу', done: false },
           { id: uid(), title: 'Вийти на нові маркетплейси', done: false },
         ] },
-      { id: uid(), title: 'Автоматизувати рутину', note: 'Менше ручної операційки', targetDate: addDays(t, 30), createdAt: new Date().toISOString(), done: false,
+      { id: uid(), area: 'work', title: 'Автоматизувати рутину', note: 'Менше ручної операційки', targetDate: addDays(t, 30), createdAt: new Date().toISOString(), done: false,
         milestones: [{ id: uid(), title: 'Описати процеси', done: false }, { id: uid(), title: 'Впровадити чеклісти', done: false }] },
+      { id: uid(), area: 'personal', title: 'Привести себе у форму', note: 'Регулярні тренування', targetDate: addDays(t, 60), createdAt: new Date().toISOString(), done: false,
+        milestones: [{ id: uid(), title: 'Зарядка щодня 2 тижні', done: false }, { id: uid(), title: 'Записатись у зал', done: false }] },
     ];
 
     s.settings.seeded = true;
@@ -253,8 +285,8 @@
   function logEvent(task) {
     state.events.push({
       id: uid(), date: todayStr(), ts: new Date().toISOString(),
-      taskId: task.id, title: task.title, kind: task.kind,
-      listId: task.listId, complexity: task.complexity, recurring: isRecurring(task),
+      taskId: task.id, title: task.title, area: task.area,
+      complexity: task.complexity, recurring: isRecurring(task),
     });
   }
 
@@ -377,24 +409,28 @@
   function startOfMonth(s) { const d = fromStr(s); return toStr(new Date(d.getFullYear(), d.getMonth(), 1)); }
   function startOfYear(s) { const d = fromStr(s); return toStr(new Date(d.getFullYear(), 0, 1)); }
 
-  function stats() {
+  // area: 'work' | 'personal' | null (усі розділи разом)
+  function stats(area) {
     const t = todayStr();
-    const total = state.events.length;
-    const evToday = state.events.filter((e) => e.date === t).length;
-    const evWeek = eventsBetween(startOfWeek(t), t).length;
-    const evMonth = eventsBetween(startOfMonth(t), t).length;
-    const evYear = eventsBetween(startOfYear(t), t).length;
+    const all = area ? state.events.filter((e) => e.area === area) : state.events;
+    const between = (a, b) => all.filter((e) => e.date >= a && e.date <= b);
+
+    const total = all.length;
+    const evToday = all.filter((e) => e.date === t).length;
+    const evWeek = between(startOfWeek(t), t).length;
+    const evMonth = between(startOfMonth(t), t).length;
+    const evYear = between(startOfYear(t), t).length;
 
     // Період активності (від першої події) — для середніх
     let firstDate = t;
-    for (const e of state.events) if (e.date < firstDate) firstDate = e.date;
+    for (const e of all) if (e.date < firstDate) firstDate = e.date;
     const activeDays = Math.max(1, diffDays(t, firstDate) + 1);
     const avgPerDay = total / activeDays;
     const avgPerWeek = avgPerDay * 7;
     const avgPerMonth = avgPerDay * 30.4;
 
     // Серія (streak) — поспіль дні з ≥1 виконанням
-    const daySet = new Set(state.events.map((e) => e.date));
+    const daySet = new Set(all.map((e) => e.date));
     let streak = 0;
     let cur = t;
     // якщо сьогодні нічого не зроблено, серію рахуємо від учора
@@ -413,7 +449,7 @@
     const last30 = [];
     for (let i = 29; i >= 0; i--) {
       const d = addDays(t, -i);
-      last30.push({ date: d, count: state.events.filter((e) => e.date === d).length });
+      last30.push({ date: d, count: all.filter((e) => e.date === d).length });
     }
 
     // Останні 12 місяців
@@ -423,27 +459,30 @@
       const dt = new Date(base.getFullYear(), base.getMonth() - i, 1);
       const ms = toStr(dt);
       const me = toStr(new Date(dt.getFullYear(), dt.getMonth() + 1, 0));
-      last12.push({ label: MONTHS[dt.getMonth()], count: eventsBetween(ms, me).length });
+      last12.push({ label: MONTHS[dt.getMonth()], count: between(ms, me).length });
     }
 
-    // Розбивка за типом / складністю / регулярністю (за поточний місяць)
-    const monthEv = eventsBetween(startOfMonth(t), t);
-    const byKind = { ops: 0, business: 0 };
-    const byList = {};
+    // Розбивка за складністю та регулярністю (за поточний місяць)
+    const monthEv = between(startOfMonth(t), t);
     const byRecurring = { recurring: 0, once: 0 };
-    const byComplexity = { simple: 0, complex: 0 };
+    const byComplexity = { easy: 0, medium: 0, hard: 0 };
     for (const e of monthEv) {
-      if (byKind[e.kind] != null) byKind[e.kind]++;
-      byList[e.listId] = (byList[e.listId] || 0) + 1;
       byRecurring[e.recurring ? 'recurring' : 'once']++;
       if (byComplexity[e.complexity] != null) byComplexity[e.complexity]++;
+    }
+
+    // Робота vs Особисте — рахуємо завжди по всіх подіях місяця, щоб
+    // цю панель можна було показати незалежно від обраного розділу
+    const byArea = { work: 0, personal: 0 };
+    for (const e of eventsBetween(startOfMonth(t), t)) {
+      if (byArea[e.area] != null) byArea[e.area]++;
     }
 
     return {
       total, evToday, evWeek, evMonth, evYear,
       avgPerDay, avgPerWeek, avgPerMonth,
       streak, best, activeDays, firstDate,
-      last30, last12, byKind, byList, byRecurring, byComplexity,
+      last30, last12, byRecurring, byComplexity, byArea,
     };
   }
 
@@ -467,17 +506,18 @@
 
   window.Store = {
     // довідники
-    LISTS: () => state.lists,
-    list: (id) => state.lists.find((l) => l.id === id) || { id, name: id, color: '#888' },
-    KINDS, COMPLEXITY, RECUR, WEEKDAYS_SHORT,
+    AREAS, COMPLEXITY, RECUR, WEEKDAYS_SHORT,
+    // поточний розділ (Робота / Особисте)
+    area: () => state.settings.area || 'work',
+    setArea: (a) => { if (AREAS[a]) { state.settings.area = a; save(); } },
     // дати
     todayStr, addDays, humanDate, fromStr, toStr, diffDays,
-    // задачі
-    tasks: () => state.tasks,
+    // задачі (усі або лише поточного розділу)
+    tasks: (area) => (area ? state.tasks.filter((t) => t.area === area) : state.tasks),
     getTask, upsertTask, deleteTask, toggleTask, toggleSubtask, moveTask,
     isDoneToday, isRecurring, bucketOf, nextOccurrence,
     // цілі
-    goals: () => state.goals,
+    goals: (area) => (area ? state.goals.filter((g) => g.area === area) : state.goals),
     getGoal, upsertGoal, deleteGoal, toggleMilestone,
     // статистика
     stats,

@@ -29,8 +29,18 @@
 
   /* ---------- Глобальний UI-стан ---------- */
   let currentTab = 'tasks';
-  let listFilter = null; // null = усі списки
-  const expandedTasks = new Set(); // які складні задачі показують підзадачі
+  const expandedTasks = new Set(); // які задачі показують підзадачі
+
+  // Перемкнути розділ Робота/Особисте й оновити все, що від нього залежить
+  function setArea(a) {
+    S.setArea(a);
+    $$('#area-switch [data-area]').forEach((b) => b.classList.toggle('on', b.dataset.area === a));
+    document.body.classList.toggle('area-personal', a === 'personal');
+    if (currentTab === 'tasks') renderTasks();
+    if (currentTab === 'stats') renderStats();
+    if (currentTab === 'goals') renderGoals();
+    renderDrawer();
+  }
 
   function toast(msg) {
     const t = $('#toast');
@@ -45,8 +55,7 @@
      ============================================================ */
   function renderTasks() {
     const root = $('#screen-tasks');
-    let tasks = S.tasks();
-    if (listFilter) tasks = tasks.filter((t) => t.listId === listFilter);
+    const tasks = S.tasks(S.area()); // лише поточний розділ
 
     // згрупувати за bucket
     const groups = { today: [], tomorrow: [], week: [], later: [] };
@@ -57,9 +66,6 @@
     }
 
     let html = '';
-    const active = listFilter ? S.list(listFilter).name : null;
-    if (active) html += `<div class="section-hint">Фільтр: <b>${esc(active)}</b> · <a class="link-btn" id="clear-filter" style="display:inline">скинути</a></div>`;
-
     let anything = false;
     for (const g of BUCKETS) {
       const items = groups[g.id];
@@ -80,17 +86,17 @@
     }
 
     if (!anything) {
-      html += `<div class="empty"><div class="big">🗒️</div>Немає задач${active ? ' у цьому списку' : ''}.<br>Натисни «+», щоб додати.</div>`;
+      const a = S.AREAS[S.area()].label.toLowerCase();
+      html += `<div class="empty"><div class="big">🗒️</div>У розділі «${esc(a)}» ще немає задач.<br>Натисни «+», щоб додати.</div>`;
     }
     root.innerHTML = html;
-    updateGauge();
   }
 
   function taskCard(t) {
-    const list = S.list(t.listId);
+    const cx = S.COMPLEXITY[t.complexity] || S.COMPLEXITY.easy;
     const doneToday = S.isDoneToday(t);
     const recurring = S.isRecurring(t);
-    const hasSubs = t.complexity === 'complex' && t.subtasks && t.subtasks.length;
+    const hasSubs = t.subtasks && t.subtasks.length;
     const open = expandedTasks.has(t.id);
 
     // Компактні маркери — іконки в тому ж рядку, що й назва (без окремого рядка).
@@ -98,9 +104,6 @@
     const marks = [];
     if (recurring) {
       marks.push(`<span class="mark recur" title="${esc(S.RECUR[t.recurrence.type].label)}">${ICON.recur}</span>`);
-    }
-    if (t.kind === 'business') {
-      marks.push(`<span class="mark biz" title="Розвиток бізнесу">${ICON.flag}</span>`);
     }
     if (hasSubs) {
       const d = t.subtasks.filter((s) => s.done).length;
@@ -127,8 +130,9 @@
 
     const remind = t.remindAt ? `<div class="remind">${ICON.bell} ${t.dueDate ? S.humanDate(t.dueDate) + ' о ' : ''}${esc(t.remindAt)}</div>` : '';
 
+    // колір чекбокса = складність (зелений/помаранчевий/червоний)
     return `<div class="task ${doneToday ? 'done-today' : ''}" data-task="${t.id}">
-      <button class="check ${doneToday ? 'on' : ''}" data-toggle="${t.id}" style="--c:${list.color}">${doneToday ? ICON.check : ''}</button>
+      <button class="check ${doneToday ? 'on' : ''}" data-toggle="${t.id}" style="--c:${cx.color}" title="${cx.label}">${doneToday ? ICON.check : ''}</button>
       <div class="body">
         <div class="line" data-open="${t.id}">${dayTag}<span class="title">${esc(t.title)}</span>${
           marks.length ? `<span class="marks">${marks.join('')}</span>` : ''}</div>
@@ -136,23 +140,6 @@
         ${subs}
       </div>
     </div>`;
-  }
-
-  function updateGauge() {
-    // «спідометр» = частка виконаного сьогодні
-    const today = S.tasks().filter((t) => S.bucketOf(t) === 'today');
-    const done = today.filter(S.isDoneToday).length;
-    const ratio = today.length ? done / today.length : 0;
-    const needle = $('#gauge-needle');
-    if (needle) {
-      const ang = -180 + ratio * 180; // -180..0 (зліва направо по верхній дузі)
-      const rad = ang * Math.PI / 180;
-      const cx = 18, cy = 26, r = 11;
-      needle.setAttribute('x2', (cx + r * Math.cos(rad)).toFixed(1));
-      needle.setAttribute('y2', (cy + r * Math.sin(rad)).toFixed(1));
-    }
-    const fill = $('#gauge-fill');
-    if (fill) fill.setAttribute('stroke', ratio >= 1 ? '#34c759' : ratio >= 0.5 ? '#f5a623' : '#e2483d');
   }
 
   /* ============================================================
@@ -352,7 +339,8 @@
      ЕКРАН: СТАТИСТИКА
      ============================================================ */
   function renderStats() {
-    const st = S.stats();
+    // статистика поточного розділу (перемикач Робота/Особисте вгорі діє й тут)
+    const st = S.stats(S.area());
     const root = $('#screen-stats');
     const fmt = (n) => (Math.round(n * 10) / 10).toString().replace('.', ',');
 
@@ -363,7 +351,7 @@
       { num: st.evYear, lbl: 'Цього року', sub: `всього ${st.total} виконань` },
     ];
 
-    let html = `<div class="view-title" style="margin:14px 4px 0">Трекер виконань</div>`;
+    let html = `<div class="view-title" style="margin:14px 4px 0">Трекер виконань · ${S.AREAS[S.area()].label}</div>`;
     html += `<div class="stat-grid">` + cards.map((c) => `
       <div class="stat-card"><div class="num">${c.num}</div><div class="lbl">${c.lbl}</div><div class="sub">${c.sub}</div></div>`).join('') + `</div>`;
 
@@ -385,21 +373,21 @@
       <div class="bars-x">${st.last12.map((d) => `<span>${d.label}</span>`).join('')}</div></div>`;
 
     // розбивка за місяць
-    html += breakdownPanel('Операційка vs Розвиток бізнесу', [
-      ['Операційна', st.byKind.ops, '#8b5cf6'],
-      ['Бізнес', st.byKind.business, '#2ea3f2'],
+    const CX = S.COMPLEXITY;
+    html += breakdownPanel('За складністю', [
+      [CX.easy.label, st.byComplexity.easy, CX.easy.color],
+      [CX.medium.label, st.byComplexity.medium, CX.medium.color],
+      [CX.hard.label, st.byComplexity.hard, CX.hard.color],
     ]);
     html += breakdownPanel('Регулярні vs Разові', [
       ['Регулярні', st.byRecurring.recurring, '#34c759'],
       ['Разові', st.byRecurring.once, '#f5a623'],
     ]);
-    html += breakdownPanel('Прості vs Складні', [
-      ['Прості', st.byComplexity.simple, '#3aa8f0'],
-      ['Складні', st.byComplexity.complex, '#e2483d'],
+    // байдуже, який розділ обрано — ця панель порівнює обидва
+    html += breakdownPanel('Робота vs Особисте', [
+      [S.AREAS.work.label, st.byArea.work, S.AREAS.work.accent],
+      [S.AREAS.personal.label, st.byArea.personal, S.AREAS.personal.accent],
     ]);
-    // за списками
-    const lists = S.LISTS().map((l) => [l.name, st.byList[l.id] || 0, l.color]).filter((r) => r[1] > 0);
-    if (lists.length) html += breakdownPanel('За списками', lists);
 
     html += `<div class="section-hint" style="text-align:center;margin-top:20px">Розбивка — за поточний місяць</div>`;
     root.innerHTML = html;
@@ -419,10 +407,10 @@
      ============================================================ */
   function renderGoals() {
     const root = $('#screen-goals');
-    const goals = S.goals();
-    let html = `<div class="view-title" style="margin:14px 4px 0">Мої цілі</div>`;
+    const goals = S.goals(S.area()); // цілі теж розділені на Робота/Особисте
+    let html = `<div class="view-title" style="margin:14px 4px 0">Мої цілі · ${S.AREAS[S.area()].label}</div>`;
     if (!goals.length) {
-      html += `<div class="empty"><div class="big">🎯</div>Ще немає цілей.<br>Додай першу через «+».</div>`;
+      html += `<div class="empty"><div class="big">🎯</div>У цьому розділі ще немає цілей.<br>Додай першу через «+».</div>`;
     } else {
       html += goals.map(goalCard).join('');
     }
@@ -455,30 +443,32 @@
      ============================================================ */
   function renderDrawer() {
     const d = $('#drawer');
-    const counts = {};
+    const cur = S.area();
+    // активні задачі по кожному розділу
+    const cnt = { work: 0, personal: 0 };
     for (const t of S.tasks()) {
       if (S.bucketOf(t) === 'done') continue;
-      counts[t.listId] = (counts[t.listId] || 0) + 1;
+      if (cnt[t.area] != null) cnt[t.area]++;
     }
-    const totalActive = S.tasks().filter((t) => S.bucketOf(t) !== 'done').length;
     let html = `<div class="d-head">
       <button class="settings" id="open-settings" aria-label="Налаштування">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.5 14H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 3.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V10a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.3 1z"/></svg>
       </button>
       <div style="font-weight:800;font-size:18px">Work Hub</div><div style="width:38px"></div></div>`;
 
-    html += `<div class="d-item ${!listFilter ? 'active' : ''}" data-filter="">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
-      Головний екран<span class="cnt">${totalActive}</span></div>`;
+    html += `<div class="d-sec">Розділи</div>`;
+    for (const [id, a] of Object.entries(S.AREAS)) {
+      html += `<div class="d-item ${cur === id ? 'active' : ''}" data-setarea="${id}">
+        <span class="dot" style="background:${a.accent}"></span>${a.label}<span class="cnt">${cnt[id]}</span></div>`;
+    }
 
+    html += `<div class="d-sec">Екрани</div>`;
+    html += `<div class="d-item" data-goto="tasks">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>Задачі</div>`;
     html += `<div class="d-item" data-goto="stats">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Дневник задач</div>`;
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Статистика</div>`;
     html += `<div class="d-item" data-goto="goals">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>Цілі</div>`;
-
-    html += `<div class="d-sec">Списки задач</div>`;
-    html += S.LISTS().map((l) => `<div class="d-item ${listFilter === l.id ? 'active' : ''}" data-filter="${l.id}">
-      <span class="dot" style="background:${l.color}"></span>${esc(l.name)}<span class="cnt">${counts[l.id] || 0}</span></div>`).join('');
 
     d.innerHTML = html;
   }
@@ -491,7 +481,7 @@
   function openTaskSheet(id) {
     const existing = id ? S.getTask(id) : null;
     draft = existing ? JSON.parse(JSON.stringify(existing)) : {
-      title: '', note: '', listId: 'ops', kind: 'ops', complexity: 'simple',
+      title: '', note: '', area: S.area(), complexity: 'easy',
       subtasks: [], recurrence: { type: 'once' }, bucket: 'today', dueDate: null, remindAt: null,
     };
     renderTaskSheet(!!existing);
@@ -502,14 +492,13 @@
     const d = draft;
     const rec = d.recurrence || { type: 'once' };
 
-    const listChips = S.LISTS().map((l) => `<button class="chip ${d.listId === l.id ? 'on' : ''}" data-setlist="${l.id}">
-      <span class="dot" style="background:${l.color}"></span>${esc(l.name)}</button>`).join('');
-
-    const kindChips = Object.entries(S.KINDS).map(([k, v]) =>
-      `<button class="chip ${d.kind === k ? 'on' : ''}" data-setkind="${k}">${v.label}</button>`).join('');
+    const areaChips = Object.entries(S.AREAS).map(([k, v]) =>
+      `<button class="chip ${d.area === k ? 'on' : ''}" data-setarea-chip="${k}">
+        <span class="dot" style="background:${v.accent}"></span>${v.label}</button>`).join('');
 
     const cxChips = Object.entries(S.COMPLEXITY).map(([k, v]) =>
-      `<button class="chip ${d.complexity === k ? 'on' : ''}" data-setcx="${k}">${v.label} · <span style="opacity:.7">${v.hint}</span></button>`).join('');
+      `<button class="chip ${d.complexity === k ? 'on' : ''}" data-setcx="${k}">
+        <span class="dot" style="background:${v.color}"></span>${v.label}</button>`).join('');
 
     const recChips = Object.entries(S.RECUR).map(([k, v]) =>
       `<button class="chip ${rec.type === k ? 'on' : ''}" data-setrec="${k}">${v.label}</button>`).join('');
@@ -537,15 +526,12 @@
         <div style="margin-top:10px"><input type="date" id="due-date" value="${d.dueDate || ''}"></div></div>`;
     }
 
-    // підзадачі — тільки для складних
-    let subField = '';
-    if (d.complexity === 'complex') {
-      subField = `<div class="field"><label>Підзадачі</label><div class="subedit" id="subedit">` +
-        (d.subtasks || []).map((s, i) => `<div class="row">
-          <input type="text" data-subidx="${i}" value="${esc(s.title)}" placeholder="Крок ${i + 1}">
-          <button class="del" data-delsub="${i}">✕</button></div>`).join('') +
-        `</div><button class="link-btn" id="add-sub">+ Додати підзадачу</button></div>`;
-    }
+    // підзадачі — доступні будь-якій задачі
+    const subField = `<div class="field"><label>Підзадачі</label><div class="subedit" id="subedit">` +
+      (d.subtasks || []).map((s, i) => `<div class="row">
+        <input type="text" data-subidx="${i}" value="${esc(s.title)}" placeholder="Крок ${i + 1}">
+        <button class="del" data-delsub="${i}">✕</button></div>`).join('') +
+      `</div><button class="link-btn" id="add-sub">+ Додати підзадачу</button></div>`;
 
     $('#sheet').innerHTML = `
       <div class="grabber"></div>
@@ -555,8 +541,7 @@
       <div class="field"><label>Назва</label>
         <input type="text" id="t-title" value="${esc(d.title)}" placeholder="Що потрібно зробити?" autocomplete="off"></div>
 
-      <div class="field"><label>Список</label><div class="chips">${listChips}</div></div>
-      <div class="field"><label>Тип</label><div class="chips">${kindChips}</div></div>
+      <div class="field"><label>Розділ</label><div class="chips">${areaChips}</div></div>
       <div class="field"><label>Складність</label><div class="chips">${cxChips}</div></div>
       <div class="field"><label>Повторення</label><div class="chips">${recChips}</div></div>
       ${recExtra}
@@ -595,11 +580,7 @@
     syncTaskInputs();
     if (!draft.title.trim()) { toast('Вкажи назву задачі'); return; }
     // очистити порожні підзадачі
-    if (draft.complexity === 'complex') {
-      draft.subtasks = (draft.subtasks || []).filter((s) => s.title.trim());
-    } else {
-      draft.subtasks = [];
-    }
+    draft.subtasks = (draft.subtasks || []).filter((s) => s.title.trim());
     // для регулярних без дати — стартуємо від сьогодні
     if (draft.recurrence.type !== 'once' && !draft.dueDate) draft.dueDate = S.todayStr();
     // isNew треба зчитати ДО збереження (upsertTask проставляє id)
@@ -616,7 +597,7 @@
      ============================================================ */
   function openGoalSheet(id) {
     const existing = id ? S.getGoal(id) : null;
-    draft = existing ? JSON.parse(JSON.stringify(existing)) : { title: '', note: '', targetDate: null, milestones: [] };
+    draft = existing ? JSON.parse(JSON.stringify(existing)) : { title: '', note: '', area: S.area(), targetDate: null, milestones: [] };
     renderGoalSheet(!!existing);
     openSheet();
   }
@@ -728,9 +709,16 @@
       if (b) switchTab(b.dataset.tab);
     });
     $('#btn-menu').addEventListener('click', openDrawer);
-    $('#btn-today').addEventListener('click', () => { switchTab('tasks'); listFilter = null; renderTasks(); });
+    $('#btn-today').addEventListener('click', () => { switchTab('tasks'); });
     $('#drawer-backdrop').addEventListener('click', closeDrawer);
     $('#sheet-backdrop').addEventListener('click', closeSheet);
+
+    // Перемикач Робота / Особисте вгорі
+    $('#area-switch').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-area]');
+      if (!b || b.dataset.area === S.area()) return;
+      setArea(b.dataset.area);
+    });
 
     // FAB — залежно від вкладки
     $('#fab').addEventListener('click', () => {
@@ -755,8 +743,6 @@
       if (sub) { S.toggleSubtask(sub.dataset.task, sub.dataset.sub); renderTasks(); return; }
       const open = e.target.closest('[data-open]');
       if (open) { openTaskSheet(open.dataset.open); return; }
-      const cf = e.target.closest('#clear-filter');
-      if (cf) { listFilter = null; renderTasks(); }
     });
 
     // Клік по екрану цілей
@@ -769,10 +755,10 @@
 
     // Бічне меню
     $('#drawer').addEventListener('click', (e) => {
-      const f = e.target.closest('[data-filter]');
-      if (f) { listFilter = f.dataset.filter || null; switchTab('tasks'); closeDrawer(); return; }
+      const a = e.target.closest('[data-setarea]');
+      if (a) { setArea(a.dataset.setarea); switchTab('tasks'); closeDrawer(); return; }
       const goto = e.target.closest('[data-goto]');
-      if (goto) { const m = { stats: 'stats', goals: 'goals' }; switchTab(goto.dataset.goto); closeDrawer(); return; }
+      if (goto) { switchTab(goto.dataset.goto); closeDrawer(); return; }
       if (e.target.closest('#open-settings')) openSettings();
     });
 
@@ -784,18 +770,10 @@
     if (e.target.closest('[data-close]')) { closeSheet(); return; }
 
     // --- задача ---
-    const setlist = e.target.closest('[data-setlist]');
-    if (setlist) { syncTaskInputs(); draft.listId = setlist.dataset.setlist; renderTaskSheet(!!draft.id); return; }
-    const setkind = e.target.closest('[data-setkind]');
-    if (setkind) { syncTaskInputs(); draft.kind = setkind.dataset.setkind; renderTaskSheet(!!draft.id); return; }
+    const setarea = e.target.closest('[data-setarea-chip]');
+    if (setarea) { syncTaskInputs(); draft.area = setarea.dataset.setareaChip; renderTaskSheet(!!draft.id); return; }
     const setcx = e.target.closest('[data-setcx]');
-    if (setcx) {
-      syncTaskInputs(); draft.complexity = setcx.dataset.setcx;
-      if (draft.complexity === 'complex' && !(draft.subtasks && draft.subtasks.length)) {
-        draft.subtasks = [{ id: S.uid(), title: '', done: false }];
-      }
-      renderTaskSheet(!!draft.id); return;
-    }
+    if (setcx) { syncTaskInputs(); draft.complexity = setcx.dataset.setcx; renderTaskSheet(!!draft.id); return; }
     const setrec = e.target.closest('[data-setrec]');
     if (setrec) {
       syncTaskInputs();
@@ -874,8 +852,7 @@
     bind();
     bindLate();
     setupDragAndDrop();
-    renderTasks();
-    renderDrawer();
+    setArea(S.area()); // відновлює обраний розділ і малює список
 
     // PWA service worker (тільки коли обслуговується через http/https)
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

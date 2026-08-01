@@ -74,6 +74,23 @@ input, textarea, select { font-family: inherit; font-size: 16px; color: var(--te
 
 .view-title { font-size: 15px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
 
+/* ---------- Перемикач Робота / Особисте ---------- */
+.area-switch {
+  display: flex; gap: 2px; padding: 3px;
+  background: var(--card-2); border-radius: 999px;
+}
+.area-switch button {
+  padding: 7px 16px; border-radius: 999px;
+  font-size: 14px; font-weight: 700; color: var(--text-dim);
+  transition: background .15s, color .15s;
+}
+.area-switch button.on { background: var(--card); color: var(--accent); box-shadow: var(--shadow-sm); }
+/* в особистому розділі акцент фіолетовий */
+body.area-personal .area-switch button.on { color: #8b5cf6; }
+body.area-personal .group-title.today { color: #8b5cf6; }
+body.area-personal .group-title.tomorrow { color: #b79df8; }
+body.area-personal .fab { background: #8b5cf6; box-shadow: 0 10px 24px rgba(139, 92, 246, .45); }
+
 /* ---------- Контент ---------- */
 /* Знизу лишаємо місце, щоб кнопка «+» не накривала останній рядок списку */
 .screen { display: none; padding: 2px 14px 90px; max-width: 640px; margin: 0 auto; }

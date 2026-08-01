@@ -30,6 +30,7 @@
 
   /* ---------- Глобальний UI-стан ---------- */
   let currentTab = 'tasks';
+  let bannerHidden = false; // банер про копію сховано до наступного запуску
   const expandedTasks = new Set(); // які задачі показують підзадачі
 
   // Перемкнути розділ Робота/Особисте й оновити все, що від нього залежить
@@ -40,6 +41,7 @@
     if (currentTab === 'tasks') renderTasks();
     if (currentTab === 'stats') renderStats();
     if (currentTab === 'goals') renderGoals();
+    if (currentTab === 'calendar') renderCalendar();
     renderDrawer();
   }
 
@@ -200,7 +202,7 @@
 
     const progress = S.todayProgress(S.area());
 
-    let html = '';
+    let html = bannerHidden ? '' : backupBannerHTML();
     let anything = false;
     for (const g of BUCKETS) {
       const items = groups[g.id];
@@ -245,7 +247,10 @@
     return `<div class="remind">${time ? ICON.bell : ICON.cal} ${text}</div>`;
   }
 
-  function taskCard(t) {
+  // opts.flat — картка всередині конкретного дня (в архіві): день і так
+  // відомий із заголовка, тож дату й мітку дня не дублюємо
+  function taskCard(t, opts) {
+    const flat = !!(opts && opts.flat);
     const cx = S.COMPLEXITY[t.complexity] || S.COMPLEXITY.easy;
     const doneToday = S.isDoneToday(t);
     const recurring = S.isRecurring(t);
@@ -267,7 +272,7 @@
     // мітка дня тижня праворуч — для швидкого перегляду
     let dayTag = '';
     const b = S.bucketOf(t);
-    if ((b === 'week' || b === 'later') && t.dueDate) {
+    if (!flat && (b === 'week' || b === 'later') && t.dueDate) {
       dayTag = `<span class="day-tag">${S.WEEKDAYS_SHORT[S.fromStr(t.dueDate).getDay()]}</span>`;
     }
 
@@ -280,7 +285,7 @@
         </div>`).join('') + `</div>`;
     }
 
-    const remind = whenNote(t, b);
+    const remind = flat ? (t.remindAt ? `<div class="remind">${ICON.bell} о ${esc(t.remindAt)}</div>` : '') : whenNote(t, b);
 
     // колір чекбокса = складність (зелений/помаранчевий/червоний)
     return `<div class="task ${doneToday ? 'done-today' : ''}" data-task="${t.id}">
@@ -555,6 +560,79 @@
   }
 
   /* ============================================================
+     ЕКРАН: КАЛЕНДАР / АРХІВ
+
+     Сітка місяця з крапками там, де щось заплановано або виконано.
+     Під нею — що саме стосується обраного дня: спершу заплановане,
+     потім виконане.
+     ============================================================ */
+  const MONTH_NAMES = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень',
+    'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
+  const calState = { y: null, m: null, sel: null };
+
+  function renderCalendar() {
+    const root = $('#screen-calendar');
+    const today = S.todayStr();
+    if (calState.sel === null) {
+      const d = S.fromStr(today);
+      calState.y = d.getFullYear(); calState.m = d.getMonth(); calState.sel = today;
+    }
+
+    const { y, m } = calState;
+    const first = new Date(y, m, 1);
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const lead = (first.getDay() + 6) % 7; // з понеділка
+    const marks = S.monthMarks(y, m, S.area());
+
+    let cells = '';
+    for (let i = 0; i < lead; i++) cells += `<div class="cal-cell empty"></div>`;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ds = S.toStr(new Date(y, m, d));
+      const cls = [
+        ds === calState.sel ? 'sel' : '',
+        ds === today ? 'today' : '',
+        marks.has(ds) ? 'has' : '',
+      ].filter(Boolean).join(' ');
+      cells += `<div class="cal-cell ${cls}" data-day="${ds}"><span>${d}</span></div>`;
+    }
+
+    const { done, planned } = S.dayEntries(calState.sel, S.area());
+    const sd = S.fromStr(calState.sel);
+    const dayLabel = `${sd.getDate()} ${MONTH_NAMES[sd.getMonth()].slice(0, 3).toLowerCase()}, ${S.WEEKDAYS_SHORT[sd.getDay()]}`;
+    const isToday = calState.sel === today;
+
+    let list = '';
+    if (planned.length) {
+      list += planned.map((t) => taskCard(t, { flat: true })).join('');
+    }
+    if (done.length) {
+      list += done.map((e) => {
+        const cx = S.COMPLEXITY[e.complexity] || S.COMPLEXITY.easy;
+        return `<div class="task done-today">
+          <button class="check on" style="--c:${cx.color}" disabled>${ICON.check}</button>
+          <div class="body"><div class="line"><span class="title">${esc(e.title)}</span></div></div>
+        </div>`;
+      }).join('');
+    }
+    if (!list) list = `<div class="empty"><div class="big">📭</div>Цього дня нічого немає.</div>`;
+
+    root.innerHTML = `
+      <div class="cal-head">
+        <button class="cal-nav" data-mon="-1" aria-label="Попередній місяць">‹</button>
+        <div class="cal-title">${MONTH_NAMES[m]} ${y !== S.fromStr(today).getFullYear() ? y : ''}</div>
+        <button class="cal-nav" data-mon="1" aria-label="Наступний місяць">›</button>
+      </div>
+      <div class="cal-week">${['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'нд'].map((d) => `<div>${d}</div>`).join('')}</div>
+      <div class="cal-grid">${cells}</div>
+      <div class="cal-day">
+        <div class="cal-day-title">${dayLabel.toUpperCase()}</div>
+        ${done.length ? `<span class="group-count full">${done.length} ✓</span>` : ''}
+      </div>
+      ${isToday ? '' : '<div class="section-hint">Відмічати можна лише сьогоднішні задачі</div>'}
+      <div class="cal-list ${isToday ? '' : 'readonly'}">${list}</div>`;
+  }
+
+  /* ============================================================
      ЕКРАН: ЦІЛІ
      ============================================================ */
   function renderGoals() {
@@ -804,15 +882,23 @@
      ============================================================ */
   function openSettings() {
     closeDrawer();
+    const days = S.daysSinceBackup();
+    const status = days === null
+      ? '<span class="bk-warn">копії ще не було</span>'
+      : days === 0 ? '<span class="bk-ok">сьогодні ✓</span>'
+        : `${days} дн. тому${days > 14 ? ' <span class="bk-warn">— варто оновити</span>' : ''}`;
+
     $('#sheet').innerHTML = `
       <div class="grabber"></div>
       <button class="close-x" data-close>✕</button>
       <h2>Налаштування</h2>
-      <div class="section-hint">Дані зберігаються локально на цьому пристрої (працює офлайн). Роби резервні копії.</div>
+      <div class="section-hint">Дані зберігаються лише на цьому пристрої. Якщо видалити застосунок — вони зникнуть разом з ним, тож копія має жити деінде.</div>
       <div class="field"><label>Резервна копія</label>
-        <button class="btn ghost" id="export-btn" style="margin-bottom:10px">⬇️ Експортувати у файл</button>
-        <button class="btn ghost" id="import-btn">⬆️ Імпортувати з файлу</button>
-        <input type="file" id="import-file" accept="application/json" class="hidden">
+        <div class="bk-status">Остання копія: ${status}</div>
+        <button class="btn primary" id="export-btn" style="margin-bottom:10px">💾 Зберегти копію</button>
+        <button class="btn ghost" id="import-btn">📂 Відновити з файлу</button>
+        <input type="file" id="import-file" accept="application/json,.json" class="hidden">
+        <div class="section-hint" style="margin-top:8px">Відкриється системне «Поділитися» — поклади файл у Файли / iCloud або надішли собі.</div>
       </div>
       <div class="field"><label>Небезпечна зона</label>
         <button class="btn danger" id="reset-btn">Скинути всі дані</button></div>
@@ -820,14 +906,58 @@
     openSheet();
   }
 
-  function doExport() {
-    const blob = new Blob([S.exportJSON()], { type: 'application/json' });
+  /* Копія: спершу системне «Поділитися» (на iPhone кладе файл одразу
+     у Файли/iCloud), і лише як запасний варіант — звичайне завантаження,
+     яке на телефоні ховає файл у «Завантаження» браузера. */
+  async function doExport() {
+    const json = S.exportJSON();
+    const name = S.backupFileName();
+
+    try {
+      const file = new File([json], name, { type: 'application/json' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Резервна копія Work Hub' });
+        S.markBackup();
+        toast('Копію збережено');
+        refreshBackupBanner();
+        return;
+      }
+    } catch (e) {
+      // користувач закрив вікно «Поділитися» — не вважаємо це копією
+      if (e && e.name === 'AbortError') return;
+    }
+
+    const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `work-hub-${S.todayStr()}.json`;
+    a.href = url; a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
-    toast('Файл збережено');
+    S.markBackup();
+    toast('Файл завантажено');
+    refreshBackupBanner();
+  }
+
+  /* Банер угорі списку, якщо копії давно (або взагалі) не було —
+     мовчазну кнопку в налаштуваннях легко не помітити. */
+  const BACKUP_NAG_DAYS = 14;
+  function backupBannerHTML() {
+    const days = S.daysSinceBackup();
+    const has = S.tasks().length > 0;
+    if (!has) return '';
+    if (days !== null && days < BACKUP_NAG_DAYS) return '';
+    const txt = days === null
+      ? 'Копії твоїх задач ще немає — усе живе лише на цьому телефоні'
+      : `Останню копію робив ${days} дн. тому`;
+    return `<div class="backup-banner" id="backup-banner">
+      <div class="bb-text">⚠️ ${txt}</div>
+      <button class="bb-act" id="bb-save">Зберегти</button>
+      <button class="bb-close" id="bb-hide" aria-label="Приховати">✕</button>
+    </div>`;
+  }
+
+  function refreshBackupBanner() {
+    if (currentTab === 'tasks') renderTasks();
   }
 
   /* ============================================================
@@ -842,14 +972,20 @@
     currentTab = tab;
     $$('.screen').forEach((s) => s.classList.remove('active'));
     $(`#screen-${tab}`).classList.add('active');
+    // календар живе за кнопкою вгорі, тож у нижньому меню нічого не підсвічуємо
     $$('#tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+    $('#btn-today').classList.toggle('on', tab === 'calendar');
     if (tab === 'tasks') renderTasks();
     if (tab === 'stats') renderStats();
     if (tab === 'goals') renderGoals();
+    if (tab === 'calendar') renderCalendar();
     window.scrollTo(0, 0);
   }
 
-  function renderAll() { renderTasks(); renderDrawer(); }
+  function renderAll() {
+    if (currentTab === 'calendar') renderCalendar(); else renderTasks();
+    renderDrawer();
+  }
 
   /* ============================================================
      ОБРОБНИКИ ПОДІЙ (делегування)
@@ -861,7 +997,41 @@
       if (b) switchTab(b.dataset.tab);
     });
     $('#btn-menu').addEventListener('click', openDrawer);
-    $('#btn-today').addEventListener('click', () => { switchTab('tasks'); });
+    // кнопка календаря вгорі: відкрити архів / повернутись до задач
+    $('#btn-today').addEventListener('click', () => {
+      switchTab(currentTab === 'calendar' ? 'tasks' : 'calendar');
+    });
+
+    // Календар: вибір дня, гортання місяців, відмітка сьогоднішніх задач
+    $('#screen-calendar').addEventListener('click', (e) => {
+      if (Date.now() < suppressClickUntil) return;
+      const mon = e.target.closest('[data-mon]');
+      if (mon) {
+        calState.m += +mon.dataset.mon;
+        if (calState.m < 0) { calState.m = 11; calState.y--; }
+        if (calState.m > 11) { calState.m = 0; calState.y++; }
+        renderCalendar();
+        return;
+      }
+      const day = e.target.closest('[data-day]');
+      if (day) { calState.sel = day.dataset.day; renderCalendar(); return; }
+
+      // відмічати дозволяємо лише в сьогоднішньому дні
+      if (calState.sel !== S.todayStr()) return;
+      const toggle = e.target.closest('[data-toggle]');
+      if (toggle) { S.toggleTask(toggle.dataset.toggle); renderCalendar(); renderDrawer(); return; }
+      const subsBtn = e.target.closest('[data-subs]');
+      if (subsBtn) {
+        const id = subsBtn.dataset.subs;
+        if (expandedTasks.has(id)) expandedTasks.delete(id); else expandedTasks.add(id);
+        renderCalendar();
+        return;
+      }
+      const sub = e.target.closest('[data-sub]');
+      if (sub) { S.toggleSubtask(sub.dataset.task, sub.dataset.sub); renderCalendar(); return; }
+      const open = e.target.closest('[data-open]');
+      if (open) openTaskSheet(open.dataset.open);
+    });
     $('#drawer-backdrop').addEventListener('click', closeDrawer);
     $('#sheet-backdrop').addEventListener('click', closeSheet);
 
@@ -881,6 +1051,8 @@
     // Клік по екрану задач
     $('#screen-tasks').addEventListener('click', (e) => {
       if (Date.now() < suppressClickUntil) return; // щойно перетягнули — не відкриваємо форму
+      if (e.target.closest('#bb-save')) { doExport(); return; }
+      if (e.target.closest('#bb-hide')) { bannerHidden = true; renderTasks(); return; }
       const toggle = e.target.closest('[data-toggle]');
       if (toggle) {
         const id = toggle.dataset.toggle;
@@ -1003,8 +1175,19 @@
         if (!file) return;
         const reader = new FileReader();
         reader.onload = () => {
-          try { S.importJSON(reader.result); closeSheet(); toast('Імпортовано'); renderAll(); }
-          catch (err) { toast('Помилка: ' + err.message); }
+          if (!confirm('Відновлення замінить усі поточні задачі даними з файлу. Продовжити?')) {
+            e.target.value = '';
+            return;
+          }
+          try {
+            const r = S.importJSON(reader.result);
+            closeSheet();
+            setArea(S.area());
+            toast(`Відновлено: ${r.tasks} задач`);
+          } catch (err) {
+            toast('Не вдалося: ' + err.message);
+          }
+          e.target.value = ''; // щоб той самий файл можна було обрати ще раз
         };
         reader.readAsText(file);
       }

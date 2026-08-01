@@ -69,6 +69,7 @@ input, textarea, select { font-family: inherit; font-size: 16px; color: var(--te
 }
 .topbar .icon-btn { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; color: var(--text); }
 .topbar .icon-btn:active { background: var(--card-2); }
+.topbar .icon-btn.on { background: var(--accent-soft); color: var(--accent); }
 .topbar .brand { display: flex; align-items: center; gap: 8px; font-weight: 800; letter-spacing: .3px; }
 .topbar .gauge { width: 34px; height: 34px; }
 
@@ -190,6 +191,26 @@ body.dragging { cursor: grabbing; }
 .group-count.full { background: #34c759; color: #fff; }
 .all-done { padding: 12px 4px 6px; color: var(--text-dim); font-size: 15px; }
 
+/* ---------- Банер про резервну копію ---------- */
+.backup-banner {
+  display: flex; align-items: center; gap: 8px;
+  background: #fff4e0; border: 1px solid #f5c877; color: #7a5310;
+  border-radius: 12px; padding: 10px 12px; margin: 8px 0 2px; font-size: 13px;
+}
+.backup-banner .bb-text { flex: 1; min-width: 0; line-height: 1.3; }
+.backup-banner .bb-act {
+  flex: 0 0 auto; background: #f5a623; color: #fff; font-weight: 700;
+  font-size: 13px; padding: 7px 12px; border-radius: 999px;
+}
+.backup-banner .bb-close { flex: 0 0 auto; color: #b08640; padding: 4px 6px; font-size: 14px; }
+@media (prefers-color-scheme: dark) {
+  .backup-banner { background: #2e2308; border-color: #6b5216; color: #f0cd8a; }
+}
+
+.bk-status { font-size: 14px; color: var(--text-dim); margin-bottom: 10px; }
+.bk-warn { color: #e2483d; font-weight: 700; }
+.bk-ok { color: #34c759; font-weight: 700; }
+
 .empty { text-align: center; color: var(--text-faint); padding: 40px 20px; }
 .empty .big { font-size: 40px; margin-bottom: 8px; }
 
@@ -253,6 +274,42 @@ body.dragging { cursor: grabbing; }
 .brow .track { height: 10px; background: var(--card-2); border-radius: 999px; overflow: hidden; }
 .brow .track > i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
 .brow .v { font-size: 13px; font-weight: 700; text-align: right; color: var(--text); }
+
+/* ---------- Календар / архів ---------- */
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 10px; }
+.cal-title { font-size: 19px; font-weight: 800; }
+.cal-nav {
+  width: 38px; height: 38px; border-radius: 12px; font-size: 22px; line-height: 1;
+  color: var(--text-dim); display: grid; place-items: center;
+}
+.cal-nav:active { background: var(--card-2); }
+
+/* minmax(0, 1fr), а не 1fr: інакше комірки не стискаються менше свого
+   вмісту і сітка вилазить за ширину екрана (сб/нд опиняються за кадром) */
+.cal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin-bottom: 4px; }
+.cal-week > div { text-align: center; font-size: 11px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; }
+
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.cal-cell {
+  position: relative; aspect-ratio: 1 / 1; display: grid; place-items: center;
+  font-size: 16px; font-weight: 600; color: var(--text); border-radius: 50%;
+}
+.cal-cell.empty { visibility: hidden; }
+/* крапка = цього дня щось заплановано або виконано */
+.cal-cell.has::after {
+  content: ''; position: absolute; bottom: 14%; width: 5px; height: 5px;
+  border-radius: 50%; background: var(--accent);
+}
+.cal-cell.today { color: var(--accent); font-weight: 800; }
+.cal-cell.sel { background: var(--accent); color: #fff; }
+.cal-cell.sel.today { color: #fff; }
+.cal-cell.sel.has::after { background: #fff; }
+
+.cal-day { display: flex; align-items: center; gap: 10px; margin: 20px 2px 2px; }
+.cal-day-title { font-size: 22px; font-weight: 900; color: var(--accent); letter-spacing: .4px; }
+/* у минулих/майбутніх днях рядки не інтерактивні */
+.cal-list.readonly .task .check { opacity: .55; }
+.cal-list .task .check[disabled] { pointer-events: none; }
 
 /* ---------- Цілі ---------- */
 .goal {

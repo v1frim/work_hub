@@ -137,7 +137,13 @@
 
   function save() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      // Зливаємо поверх прочитаного, а не замінюємо: якщо застосунок
+      // відкотиться на стару збірку, поля, яких вона не знає, не зникнуть.
+      let base = null;
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) { try { base = JSON.parse(raw); } catch (e) { base = null; } }
+      const out = (base && typeof base === 'object') ? Object.assign({}, base, state) : state;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
     } catch (e) {
       console.error('Не вдалося зберегти дані', e);
     }
@@ -240,12 +246,9 @@
 
   // До якої групи (Сьогодні/Завтра/На тижні/Потім) належить задача
   function bucketOf(task) {
-    // Разові виконані: якщо виконано сьогодні — лишаємо у «Сьогодні»
-    // позначеними (щоб бачити зроблене); з минулих днів — ховаємо.
-    if (!isRecurring(task) && task.done) {
-      const doneDay = task.completedAt ? toStr(new Date(task.completedAt)) : null;
-      return doneDay === todayStr() ? 'today' : 'done';
-    }
+    // Виконані разові зникають з головного екрана — їх видно в архіві
+    // (екран календаря) за днем виконання.
+    if (!isRecurring(task) && task.done) return 'done';
 
     // Регулярні після виконання не залишаються в «Сьогодні»: їхній dueDate
     // уже вказує на наступну появу, і саме він визначає групу нижче.
@@ -358,6 +361,52 @@
     const pending = state.tasks.filter((x) => (!area || x.area === area)
       && bucketOf(x) === 'today' && !isDoneToday(x)).length;
     return { done, total: done + pending };
+  }
+
+  /* ---------- Архів: що стосується конкретного дня ---------- */
+
+  /* Повертає { done, planned } для дати:
+     done    — записи журналу за цей день (що реально виконано),
+     planned — активні задачі, заплановані на цей день. */
+  function dayEntries(dateStr, area) {
+    const t = todayStr();
+    const mine = (o) => !area || o.area === area;
+
+    const done = state.events.filter((e) => e.date === dateStr && mine(e));
+
+    const planned = [];
+    for (const x of state.tasks) {
+      if (!mine(x)) continue;
+      if (!isRecurring(x) && x.done) continue; // виконана разова — вона вже в done
+      if (isDoneToday(x)) continue;            // виконана сьогодні регулярна
+      const due = x.dueDate;
+      if (due) {
+        // прострочені показуємо в сьогоднішньому дні
+        if (due === dateStr || (dateStr === t && due < t)) planned.push(x);
+      } else if (dateStr === t && (x.bucket || 'today') === 'today') {
+        planned.push(x);
+      }
+    }
+    planned.sort((a, b) => a.order - b.order);
+    return { done, planned };
+  }
+
+  /* Дати місяця, у яких щось є (для крапок під числами) */
+  function monthMarks(year, month, area) {
+    const from = toStr(new Date(year, month, 1));
+    const to = toStr(new Date(year, month + 1, 0));
+    const marks = new Set();
+    const mine = (o) => !area || o.area === area;
+
+    for (const e of state.events) {
+      if (mine(e) && e.date >= from && e.date <= to) marks.add(e.date);
+    }
+    for (const x of state.tasks) {
+      if (!mine(x)) continue;
+      if (!isRecurring(x) && x.done) continue;
+      if (x.dueDate && x.dueDate >= from && x.dueDate <= to) marks.add(x.dueDate);
+    }
+    return marks;
   }
 
   /* Перенести задачу в іншу групу (день) і поставити на позицію index.
@@ -517,16 +566,50 @@
     };
   }
 
-  /* ---------- Експорт/імпорт ---------- */
+  /* ---------- Резервні копії ---------- */
 
-  function exportJSON() { return JSON.stringify(state, null, 2); }
+  const BACKUP_APP = 'work-hub';
+
+  /* Файл копії має обгортку: так при відновленні видно, що це «наш» файл,
+     і якої він давності. Старий «голий» формат теж приймаємо. */
+  function exportJSON() {
+    return JSON.stringify({
+      _app: BACKUP_APP,
+      _version: state.version,
+      _exportedAt: new Date().toISOString(),
+      state,
+    }, null, 2);
+  }
+
   function importJSON(text) {
-    const parsed = JSON.parse(text);
-    if (!parsed || !Array.isArray(parsed.tasks)) throw new Error('Невірний формат файлу');
-    state = Object.assign(blankState(), parsed);
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch (e) { throw new Error('Це не JSON-файл'); }
+
+    const data = (parsed && parsed.state) ? parsed.state : parsed; // нова обгортка або старий формат
+    if (!data || !Array.isArray(data.tasks)) throw new Error('У файлі немає задач цього застосунку');
+    if (parsed && parsed._app && parsed._app !== BACKUP_APP) throw new Error('Файл від іншого застосунку');
+
+    state = migrate(Object.assign(blankState(), data));
     state.settings.seeded = true;
     save();
+    return { at: (parsed && parsed._exportedAt) || null, tasks: state.tasks.length };
   }
+
+  function markBackup() {
+    state.settings.lastBackupAt = new Date().toISOString();
+    save();
+  }
+
+  // Скільки днів минуло з останньої копії (null — копії ще не було)
+  function daysSinceBackup() {
+    const at = state.settings.lastBackupAt;
+    if (!at) return null;
+    return Math.max(0, diffDays(todayStr(), toStr(new Date(at))));
+  }
+
+  function backupFileName() { return `work-hub-${todayStr()}.json`; }
+
   function resetAll() {
     localStorage.removeItem(STORAGE_KEY);
     state = seedIfEmpty(blankState());
@@ -548,6 +631,8 @@
     getTask, upsertTask, deleteTask, toggleTask, toggleSubtask, moveTask,
     undoCompletion, todayProgress,
     isDoneToday, isRecurring, bucketOf, nextOccurrence,
+    // архів
+    dayEntries, monthMarks,
     // цілі
     goals: (area) => (area ? state.goals.filter((g) => g.area === area) : state.goals),
     getGoal, upsertGoal, deleteGoal, toggleMilestone,
@@ -555,6 +640,7 @@
     stats,
     // сервіс
     exportJSON, importJSON, resetAll, save, uid,
+    markBackup, daysSinceBackup, backupFileName,
     raw: () => state,
   };
 })();

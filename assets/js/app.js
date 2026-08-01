@@ -166,12 +166,20 @@
     }, 140);
   }
 
-  function toast(msg) {
+  // action: { label, fn } — необовʼязкова кнопка в тості (напр. «Скасувати»)
+  function toast(msg, action) {
     const t = $('#toast');
-    t.textContent = msg;
+    t.innerHTML = esc(msg) + (action ? ` <button class="toast-act">${esc(action.label)}</button>` : '');
+    if (action) {
+      $('.toast-act', t).onclick = () => {
+        t.classList.remove('show');
+        clearTimeout(toast._t);
+        action.fn();
+      };
+    }
     t.classList.add('show');
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => t.classList.remove('show'), 1800);
+    toast._t = setTimeout(() => t.classList.remove('show'), action ? 4000 : 1800);
   }
 
   /* ============================================================
@@ -189,23 +197,26 @@
       if (groups[b]) groups[b].push(t);
     }
 
+    const progress = S.todayProgress(S.area());
+
     let html = '';
     let anything = false;
     for (const g of BUCKETS) {
       const items = groups[g.id];
-      if (!items.length) continue;
+      // «Сьогодні» показуємо навіть порожнім, якщо сьогодні щось зроблено —
+      // інакше прогрес зникав би разом з останньою виконаною задачею
+      const keepToday = g.id === 'today' && progress.done > 0;
+      if (!items.length && !keepToday) continue;
       anything = true;
       // сортування: невиконані спершу, потім за порядком
       items.sort((a, b) => (S.isDoneToday(a) - S.isDoneToday(b)) || (a.order - b.order));
 
-      let count = '';
-      if (g.id === 'today') {
-        const done = items.filter(S.isDoneToday).length;
-        count = `<span class="group-count">${done}/${items.length}</span>`;
-      }
+      const count = g.id === 'today'
+        ? `<span class="group-count ${progress.done === progress.total ? 'full' : ''}">${progress.done}/${progress.total}</span>` : '';
       html += `<section class="group" data-bucket="${g.id}"><div class="group-head">
         <div class="group-title ${g.id}">${g.title.toUpperCase()}</div>${count}</div>`;
-      html += items.map(taskCard).join('');
+      html += items.length ? items.map(taskCard).join('')
+        : `<div class="all-done">🎉 Усе на сьогодні виконано</div>`;
       html += `</section>`;
     }
 
@@ -854,7 +865,24 @@
     $('#screen-tasks').addEventListener('click', (e) => {
       if (Date.now() < suppressClickUntil) return; // щойно перетягнули — не відкриваємо форму
       const toggle = e.target.closest('[data-toggle]');
-      if (toggle) { S.toggleTask(toggle.dataset.toggle); renderTasks(); renderDrawer(); return; }
+      if (toggle) {
+        const id = toggle.dataset.toggle;
+        const task = S.getTask(id);
+        const wasPending = task && S.isRecurring(task) && !S.isDoneToday(task);
+        S.toggleTask(id);
+        renderTasks(); renderDrawer();
+        // регулярна щойно переїхала на наступний строк — покажемо куди,
+        // і дамо змогу скасувати, якщо натиснув випадково
+        if (wasPending) {
+          const now = S.getTask(id);
+          const b = BUCKETS.find((x) => x.id === S.bucketOf(now));
+          toast(`Далі: ${b ? b.title.toLowerCase() : S.humanDate(now.dueDate)}`, {
+            label: 'Скасувати',
+            fn: () => { S.undoCompletion(id); renderTasks(); renderDrawer(); },
+          });
+        }
+        return;
+      }
       // згорнути/розгорнути підзадачі — має перехоплюватись раніше за data-open
       const subsBtn = e.target.closest('[data-subs]');
       if (subsBtn) {

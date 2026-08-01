@@ -187,6 +187,9 @@ body.dragging { cursor: grabbing; }
 .group.is-temp .group-title { opacity: .45; }
 .group.drop-over .group-title { opacity: 1; }
 
+.group-count.full { background: #34c759; color: #fff; }
+.all-done { padding: 12px 4px 6px; color: var(--text-dim); font-size: 15px; }
+
 .empty { text-align: center; color: var(--text-faint); padding: 40px 20px; }
 .empty .big { font-size: 40px; margin-bottom: 8px; }
 
@@ -369,6 +372,11 @@ body.dragging { cursor: grabbing; }
   font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: all .25s;
   box-shadow: var(--shadow);
 }
-.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+/* кнопка «Скасувати» всередині тоста */
+.toast-act {
+  margin-left: 10px; color: #6cc7ff; font-weight: 800; font-size: 14px;
+  padding: 2px 4px; background: none;
+}
 
 .hidden { display: none !important; }

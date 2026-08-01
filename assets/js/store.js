@@ -230,6 +230,9 @@
 
   function isDoneToday(task) {
     if (isRecurring(task)) {
+      // Виконаною показуємо лише поточну появу задачі. Якщо строк уже
+      // перенесено на майбутнє — це вже наступна поява, вона не виконана.
+      if (task.dueDate && task.dueDate > todayStr()) return false;
       return state.events.some((e) => e.taskId === task.id && e.date === todayStr());
     }
     return !!task.done;
@@ -238,15 +241,14 @@
   // До якої групи (Сьогодні/Завтра/На тижні/Потім) належить задача
   function bucketOf(task) {
     // Разові виконані: якщо виконано сьогодні — лишаємо у «Сьогодні»
-    // позначеними (щоб бачити прогрес X/Y); з минулих днів — ховаємо.
+    // позначеними (щоб бачити зроблене); з минулих днів — ховаємо.
     if (!isRecurring(task) && task.done) {
       const doneDay = task.completedAt ? toStr(new Date(task.completedAt)) : null;
       return doneDay === todayStr() ? 'today' : 'done';
     }
 
-    // Регулярні, виконані сьогодні — лишаються в «Сьогодні» позначеними
-    if (isRecurring(task) && isDoneToday(task)) return 'today';
-
+    // Регулярні після виконання не залишаються в «Сьогодні»: їхній dueDate
+    // уже вказує на наступну появу, і саме він визначає групу нижче.
     const anchor = task.dueDate;
     if (!anchor) return task.bucket || 'today';
 
@@ -312,8 +314,13 @@
         unlogTodayEvent(id);
       } else {
         logEvent(task);
-        // перенести наступний строк
-        task.dueDate = nextOccurrence(todayStr(), task.recurrence);
+        // Перенести на наступну появу. Відлік ведемо від пізнішої з дат
+        // (сьогодні / поточний строк), щоб виконана наперед задача
+        // не «зависала» на тій самій даті.
+        const t = todayStr();
+        const base = (task.dueDate && task.dueDate > t) ? task.dueDate : t;
+        task.prevDueDate = task.dueDate || null; // для скасування
+        task.dueDate = nextOccurrence(base, task.recurrence);
       }
     } else {
       if (task.done) {
@@ -327,6 +334,30 @@
       }
     }
     save();
+  }
+
+  /* Скасувати щойно зроблене виконання регулярної задачі: прибрати запис
+     із журналу й повернути попередній строк. */
+  function undoCompletion(id) {
+    const task = getTask(id);
+    if (!task || !isRecurring(task)) return false;
+    unlogTodayEvent(id);
+    if (task.prevDueDate !== undefined) {
+      task.dueDate = task.prevDueDate;
+      delete task.prevDueDate;
+    }
+    save();
+    return true;
+  }
+
+  /* Прогрес за сьогодні. Виконані регулярні задачі вже переїхали в інші
+     групи, тому рахуємо їх окремо — інакше прогрес «стирався» б. */
+  function todayProgress(area) {
+    const t = todayStr();
+    const done = state.events.filter((e) => e.date === t && (!area || e.area === area)).length;
+    const pending = state.tasks.filter((x) => (!area || x.area === area)
+      && bucketOf(x) === 'today' && !isDoneToday(x)).length;
+    return { done, total: done + pending };
   }
 
   /* Перенести задачу в іншу групу (день) і поставити на позицію index.
@@ -515,6 +546,7 @@
     // задачі (усі або лише поточного розділу)
     tasks: (area) => (area ? state.tasks.filter((t) => t.area === area) : state.tasks),
     getTask, upsertTask, deleteTask, toggleTask, toggleSubtask, moveTask,
+    undoCompletion, todayProgress,
     isDoneToday, isRecurring, bucketOf, nextOccurrence,
     // цілі
     goals: (area) => (area ? state.goals.filter((g) => g.area === area) : state.goals),

@@ -135,6 +135,10 @@
     return s;
   }
 
+  // Хук для модуля синхронізації: стор нічого не знає про GitHub,
+  // лише повідомляє «я змінився».
+  let onSavedHook = null;
+
   function save() {
     try {
       // Зливаємо поверх прочитаного, а не замінюємо: якщо застосунок
@@ -147,6 +151,7 @@
     } catch (e) {
       console.error('Не вдалося зберегти дані', e);
     }
+    if (onSavedHook) { try { onSavedHook(); } catch (e) { console.warn(e); } }
   }
 
   /* ---------- Демо-дані для першого запуску ---------- */
@@ -641,6 +646,7 @@
     // сервіс
     exportJSON, importJSON, resetAll, save, uid,
     markBackup, daysSinceBackup, backupFileName,
+    setOnSaved: (fn) => { onSavedHook = fn; },
     raw: () => state,
   };
 })();

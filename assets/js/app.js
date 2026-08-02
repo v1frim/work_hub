@@ -900,10 +900,54 @@
         <input type="file" id="import-file" accept="application/json,.json" class="hidden">
         <div class="section-hint" style="margin-top:8px">Відкриється системне «Поділитися» — поклади файл у Файли / iCloud або надішли собі.</div>
       </div>
+      ${gitSyncHTML()}
       <div class="field"><label>Небезпечна зона</label>
         <button class="btn danger" id="reset-btn">Скинути всі дані</button></div>
       <div class="section-hint" style="text-align:center;margin-top:18px">Work Hub · офлайн-трекер задач</div>`;
     openSheet();
+  }
+
+  /* ---------- Автокопія на GitHub ---------- */
+
+  const GIT_STATE_TEXT = {
+    off: 'не підключено',
+    idle: 'очікує змін',
+    syncing: 'заливаю…',
+    synced: 'синхронізовано ✓',
+    error: 'помилка',
+    'needs-confirm': 'потрібне підтвердження',
+  };
+
+  function gitSyncHTML() {
+    const G = window.GitSync;
+    if (!G) return '';
+
+    if (!G.configured()) {
+      return `<div class="field"><label>Автокопія на GitHub</label>
+        <div class="section-hint" style="margin:0 0 10px">Копія оновлюватиметься сама після кожної зміни. Кожне заливання — окремий коміт, тож історія версій зберігається.</div>
+        <input type="text" id="git-repo" placeholder="власник/репозиторій" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <input type="text" id="git-token" placeholder="токен GitHub (ghp_… або github_pat_…)" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:8px">
+        <button class="btn ghost" id="git-connect" style="margin-top:10px">🔗 Підключити</button>
+        <div class="section-hint" style="margin-top:8px">Потрібен приватний репозиторій і fine-grained токен із правом <b>Contents: Read and write</b>. Токен зберігається лише на цьому пристрої й не потрапляє у файл копії.</div>
+      </div>`;
+    }
+
+    const c = G.config();
+    const st = G.status();
+    const cls = st.state === 'error' || st.state === 'needs-confirm' ? 'bk-warn' : (st.state === 'synced' ? 'bk-ok' : '');
+    const when = c.lastAt ? new Date(c.lastAt).toLocaleString('uk-UA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+
+    return `<div class="field"><label>Автокопія на GitHub</label>
+      <div class="bk-status" id="git-info">
+        <div><b>${esc(c.repo)}</b> / ${esc(c.path)}</div>
+        <div id="git-state" class="${cls}">${GIT_STATE_TEXT[st.state] || st.state}${st.error ? ': ' + esc(st.error) : ''}</div>
+        <div>остання копія: ${when}</div>
+      </div>
+      ${st.state === 'needs-confirm' ? `<div class="section-hint bk-warn" style="margin:0 0 10px">Задач стало помітно менше, ніж у копії. Автозаливання зупинено, щоб не затерти дані. Якщо так і має бути — натисни «Залити зараз».</div>` : ''}
+      <button class="btn ghost" id="git-push" style="margin-bottom:10px">⬆️ Залити зараз</button>
+      <button class="btn ghost" id="git-restore" style="margin-bottom:10px">⬇️ Відновити з GitHub</button>
+      <button class="btn danger" id="git-disconnect">Відключити</button>
+    </div>`;
   }
 
   /* Копія: спершу системне «Поділитися» (на iPhone кладе файл одразу
@@ -936,6 +980,19 @@
     S.markBackup();
     toast('Файл завантажено');
     refreshBackupBanner();
+  }
+
+  function gitConnect() {
+    const repo = $('#git-repo', $('#sheet')).value;
+    const token = $('#git-token', $('#sheet')).value;
+    toast('Перевіряю доступ…');
+    window.GitSync.connect({ repo, token })
+      .then(() => {
+        openSettings();
+        refreshBackupBanner(); // копія свіжа — банер більше не потрібен
+        toast('Підключено — копія оновлюватиметься сама');
+      })
+      .catch((err) => toast('Не вдалося: ' + err.message));
   }
 
   /* Банер угорі списку, якщо копії давно (або взагалі) не було —
@@ -1158,6 +1215,34 @@
       return;
     }
 
+    // --- автокопія на GitHub ---
+    if (e.target.closest('#git-connect')) { gitConnect(); return; }
+    if (e.target.closest('#git-push')) {
+      toast('Заливаю…');
+      window.GitSync.pushNow({ force: true }).then((ok) => {
+        toast(ok ? 'Копію залито' : ('Не вдалося: ' + (window.GitSync.status().error || 'без змін')));
+        openSettings();
+        refreshBackupBanner();
+      });
+      return;
+    }
+    if (e.target.closest('#git-restore')) {
+      if (!confirm('Відновлення замінить усі поточні задачі даними з GitHub. Продовжити?')) return;
+      window.GitSync.restore().then((r) => {
+        closeSheet();
+        setArea(S.area());
+        toast(`Відновлено: ${r.tasks} задач`);
+      }).catch((err) => toast('Не вдалося: ' + err.message));
+      return;
+    }
+    if (e.target.closest('#git-disconnect')) {
+      if (!confirm('Відключити автокопію? Файл у репозиторії лишиться на місці.')) return;
+      window.GitSync.disconnect();
+      openSettings();
+      toast('Автокопію відключено');
+      return;
+    }
+
     // --- налаштування ---
     if (e.target.closest('#export-btn')) { doExport(); return; }
     if (e.target.closest('#import-btn')) { $('#import-file').click(); return; }
@@ -1241,9 +1326,12 @@
 
     // Коли нова версія перебирає керування — один раз перезавантажуємось,
     // щоб користувач бачив свіжий код (дані в localStorage не зачіпаються).
+    // При ПЕРШОМУ відкритті контролера ще не було: там воркер лише стає на
+    // місце, і перезавантажувати сторінку нема за чим.
+    const hadController = !!navigator.serviceWorker.controller;
     let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloading) return;
+      if (!hadController || reloading) return;
       reloading = true;
       location.reload();
     });

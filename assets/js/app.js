@@ -680,11 +680,9 @@
       if (S.bucketOf(t) === 'done') continue;
       if (cnt[t.area] != null) cnt[t.area]++;
     }
-    let html = `<div class="d-head">
-      <button class="settings" id="open-settings" aria-label="Налаштування">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.5 14H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 3.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V10a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.3 1z"/></svg>
-      </button>
-      <div style="font-weight:800;font-size:18px">Work Hub</div><div style="width:38px"></div></div>`;
+    const GEAR = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.5 14H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 3.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V10a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.3 1z"/></svg>';
+
+    let html = `<div class="d-head"><div style="font-weight:800;font-size:18px">Work Hub</div></div>`;
 
     html += `<div class="d-sec">Розділи</div>`;
     for (const [id, a] of Object.entries(S.AREAS)) {
@@ -699,8 +697,27 @@
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Статистика</div>`;
     html += `<div class="d-item" data-goto="goals">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>Цілі</div>`;
+    html += `<div class="d-item" data-goto="calendar">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Календар / архів</div>`;
+
+    // Окремим пунктом із назвою: іконка в кутку губилась
+    html += `<hr>`;
+    html += `<div class="d-item" id="open-settings">${GEAR}Налаштування${backupHintHTML()}</div>`;
 
     d.innerHTML = html;
+  }
+
+  // Підказка біля «Налаштувань»: у якому стані резервна копія
+  function backupHintHTML() {
+    const G = window.GitSync;
+    if (G && G.configured()) {
+      const st = G.status().state;
+      if (st === 'error' || st === 'needs-confirm') return '<span class="cnt bk-warn">копія!</span>';
+      return '<span class="cnt bk-ok">копія ✓</span>';
+    }
+    const days = S.daysSinceBackup();
+    if (days === null || days > 14) return '<span class="cnt bk-warn">копія!</span>';
+    return '';
   }
 
   /* ============================================================

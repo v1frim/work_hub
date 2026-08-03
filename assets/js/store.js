@@ -79,7 +79,7 @@
       tasks: [],
       goals: [],
       events: [], // журнал виконань {id, date, ts, taskId, title, area, complexity, recurring}
-      settings: { seeded: false, area: 'work' },
+      settings: { seeded: false, area: 'work', sound: true },
     };
   }
 
@@ -629,6 +629,9 @@
     // поточний розділ (Робота / Особисте)
     area: () => state.settings.area || 'work',
     setArea: (a) => { if (AREAS[a]) { state.settings.area = a; save(); } },
+    // звук виконання (у старих даних поля немає — вважаємо увімкненим)
+    soundOn: () => state.settings.sound !== false,
+    setSound: (v) => { state.settings.sound = !!v; save(); },
     // дати
     todayStr, addDays, humanDate, fromStr, toStr, diffDays,
     // задачі (усі або лише поточного розділу)

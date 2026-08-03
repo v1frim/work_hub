@@ -169,6 +169,95 @@
     }, 140);
   }
 
+  /* ============================================================
+     ЗВУК І АНІМАЦІЯ ВИКОНАННЯ
+
+     Задача не зникає миттєво: спершу видно поставлену галочку,
+     і лише за секунду рядок згасає. Разом зі звуком це дає чіткий
+     сигнал «зроблено».
+     ============================================================ */
+  const HOLD_DONE_MS = 900;   // скільки милуємось галочкою
+  const FADE_MS = 260;        // згасання рядка
+
+  let audioCtx = null;
+
+  /* Короткий двонотний сигнал. Генеруємо на льоту, щоб не тягнути
+     звуковий файл: він однаково не встиг би завантажитись офлайн. */
+  function playDoneSound() {
+    if (!S.soundOn()) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!audioCtx) audioCtx = new AC();
+      // iOS дозволяє звук лише після дотику — а ми тут саме з дотику
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+
+      const t = audioCtx.currentTime;
+      const gain = audioCtx.createGain();
+      gain.connect(audioCtx.destination);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.22, t + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+
+      [880, 1318.5].forEach((freq, i) => {          // ля → мі, «дзінь»
+        const osc = audioCtx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t + i * 0.085);
+        osc.connect(gain);
+        osc.start(t + i * 0.085);
+        osc.stop(t + 0.42);
+      });
+    } catch (e) { /* без звуку — не біда */ }
+  }
+
+  /* Спільний обробник позначення задачі: і на екрані задач, і в архіві. */
+  function toggleWithFeedback(id, rerender) {
+    const task = S.getTask(id);
+    if (!task) return;
+
+    const wasDone = S.isDoneToday(task);
+    const wasRecurringPending = S.isRecurring(task) && !wasDone;
+    S.toggleTask(id);
+
+    // Зняли галочку — нічого святкувати, оновлюємо одразу
+    if (wasDone) { rerender(); renderDrawer(); return; }
+
+    playDoneSound();
+
+    const row = $(`.screen.active .task[data-task="${id}"]`);
+    if (!row) { rerender(); renderDrawer(); return; }
+
+    // показуємо галочку, не перемальовуючи список
+    row.classList.add('done-today', 'just-done');
+    const check = $('.check', row);
+    if (check) { check.classList.add('on'); check.innerHTML = ICON.check; }
+
+    // лічильник дня оновлюємо одразу — приємніше, ніж чекати секунду
+    const badge = $('.group[data-bucket="today"] .group-count');
+    if (badge) {
+      const pr = S.todayProgress(S.area());
+      badge.textContent = `${pr.done}/${pr.total}`;
+      badge.classList.toggle('full', pr.done === pr.total);
+    }
+    renderDrawer();
+
+    setTimeout(() => {
+      const el = $(`.screen.active .task[data-task="${id}"]`);
+      if (el) el.classList.add('vanish');
+      setTimeout(() => {
+        rerender();
+        if (wasRecurringPending) {
+          const now = S.getTask(id);
+          const b = BUCKETS.find((x) => x.id === S.bucketOf(now));
+          toast(`Далі: ${b ? b.title.toLowerCase() : S.humanDate(now.dueDate)}`, {
+            label: 'Скасувати',
+            fn: () => { S.undoCompletion(id); rerender(); renderDrawer(); },
+          });
+        }
+      }, FADE_MS);
+    }, HOLD_DONE_MS);
+  }
+
   // action: { label, fn } — необовʼязкова кнопка в тості (напр. «Скасувати»)
   function toast(msg, action) {
     const t = $('#toast');
@@ -917,6 +1006,9 @@
         <input type="file" id="import-file" accept="application/json,.json" class="hidden">
         <div class="section-hint" style="margin-top:8px">Відкриється системне «Поділитися» — поклади файл у Файли / iCloud або надішли собі.</div>
       </div>
+      <div class="field"><label>Звук</label>
+        <button class="btn ghost" id="sound-btn">${S.soundOn() ? '🔊 Звук виконання: увімкнено' : '🔇 Звук виконання: вимкнено'}</button>
+      </div>
       ${gitSyncHTML()}
       <div class="field"><label>Небезпечна зона</label>
         <button class="btn danger" id="reset-btn">Скинути всі дані</button></div>
@@ -1093,7 +1185,7 @@
       // відмічати дозволяємо лише в сьогоднішньому дні
       if (calState.sel !== S.todayStr()) return;
       const toggle = e.target.closest('[data-toggle]');
-      if (toggle) { S.toggleTask(toggle.dataset.toggle); renderCalendar(); renderDrawer(); return; }
+      if (toggle) { toggleWithFeedback(toggle.dataset.toggle, renderCalendar); return; }
       const subsBtn = e.target.closest('[data-subs]');
       if (subsBtn) {
         const id = subsBtn.dataset.subs;
@@ -1128,24 +1220,7 @@
       if (e.target.closest('#bb-save')) { doExport(); return; }
       if (e.target.closest('#bb-hide')) { bannerHidden = true; renderTasks(); return; }
       const toggle = e.target.closest('[data-toggle]');
-      if (toggle) {
-        const id = toggle.dataset.toggle;
-        const task = S.getTask(id);
-        const wasPending = task && S.isRecurring(task) && !S.isDoneToday(task);
-        S.toggleTask(id);
-        renderTasks(); renderDrawer();
-        // регулярна щойно переїхала на наступний строк — покажемо куди,
-        // і дамо змогу скасувати, якщо натиснув випадково
-        if (wasPending) {
-          const now = S.getTask(id);
-          const b = BUCKETS.find((x) => x.id === S.bucketOf(now));
-          toast(`Далі: ${b ? b.title.toLowerCase() : S.humanDate(now.dueDate)}`, {
-            label: 'Скасувати',
-            fn: () => { S.undoCompletion(id); renderTasks(); renderDrawer(); },
-          });
-        }
-        return;
-      }
+      if (toggle) { toggleWithFeedback(toggle.dataset.toggle, renderTasks); return; }
       // згорнути/розгорнути підзадачі — має перехоплюватись раніше за data-open
       const subsBtn = e.target.closest('[data-subs]');
       if (subsBtn) {
@@ -1229,6 +1304,14 @@
     if (e.target.closest('#save-goal')) { saveGoal(); return; }
     if (e.target.closest('[data-delgoal]')) {
       if (confirm('Видалити ціль?')) { S.deleteGoal(draft.id); closeSheet(); toast('Видалено'); renderGoals(); }
+      return;
+    }
+
+    if (e.target.closest('#sound-btn')) {
+      const on = !S.soundOn();
+      S.setSound(on);
+      openSettings();
+      if (on) playDoneSound();   // одразу чути, як воно звучить
       return;
     }
 

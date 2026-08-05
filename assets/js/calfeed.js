@@ -172,11 +172,19 @@
       if (!ok && status.state === 'error') throw new Error(status.error || 'Не вдалося залити файл');
       return { url: feedUrl(), webcal: webcalUrl() };
     } catch (e) {
+      // Конфіг ми вже встигли записати (щоб publishNow мав з чим працювати),
+      // тож при невдачі його треба саме СТЕРТИ. Інакше в памʼяті телефона
+      // лишиться налаштування, якого насправді немає: застосунок вважав би
+      // синхронізацію ввімкненою, а файл ніколи б не зʼявився.
       cfg = prev;
+      saveCfg();
       setStatus(prev ? 'idle' : 'off');
       throw e;
     }
   }
+
+  /* Чи стрічка справді працює: увімкнена і хоч раз залилась. */
+  function healthy() { return !!(cfg && cfg.lastAt); }
 
   /* Вимикаємо — і за замовчуванням прибираємо файл із репозиторію, щоб
      публічне посилання перестало віддавати події. */
@@ -246,6 +254,7 @@
 
   window.CalFeed = {
     enabled: () => !!cfg,
+    healthy,
     config: () => (cfg ? {
       repo: cfg.repo, branch: cfg.branch, path: cfg.path,
       lastAt: cfg.lastAt || null, count: cfg.lastCount || 0,

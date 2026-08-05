@@ -811,7 +811,7 @@
   function notifyHintHTML() {
     const canNotify = 'Notification' in window;
     const granted = canNotify && Notification.permission === 'granted';
-    const feedOn = window.CalFeed && window.CalFeed.enabled();
+    const feedOn = window.CalFeed && window.CalFeed.healthy();
 
     const notifyLine = granted
       ? `<div style="margin-top:6px" class="bk-ok">Сповіщення в застосунку дозволені — він нагадає й сам, поки відкритий.</div>`
@@ -1140,7 +1140,7 @@
     renderEvents();
     // Якщо стрічка ввімкнена, подія поїде в Календар сама — не смикаємо
     // «Поділитися». Інакше одразу пропонуємо покласти її туди руками.
-    if (isNew && !(window.CalFeed && window.CalFeed.enabled())) {
+    if (isNew && !(window.CalFeed && window.CalFeed.healthy())) {
       setTimeout(() => shareICS([S.getReminder(id)]), 400);
     }
   }
@@ -1305,13 +1305,16 @@
     const cls = st.state === 'error' ? 'bk-warn' : (st.state === 'synced' ? 'bk-ok' : '');
     const when = c.lastAt ? new Date(c.lastAt).toLocaleString('uk-UA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 
+    const live = C.healthy(); // стрічка залилась хоч раз — інакше посилання ще порожнє
+
     return `<div class="field"><label>Події в Календарі телефона</label>
       <div class="bk-status" id="cal-info">
         <div id="cal-state" class="${cls}">${CAL_STATE_TEXT[st.state] || st.state}${st.error ? ': ' + esc(st.error) : ''}</div>
-        <div>оновлено: ${when} · подій: ${c.count}</div>
+        <div id="cal-meta">оновлено: ${when} · подій: ${c.count}</div>
       </div>
+      ${live ? '' : `<div class="section-hint bk-warn" style="margin:0 0 10px">Файл стрічки ще жодного разу не залився — посилання поки нікуди не веде. Натисни «Оновити стрічку зараз»: якщо все гаразд, зʼявиться «стрічку оновлено ✓».</div>`}
       <div class="feed-url" id="cal-url">${esc(c.webcal)}</div>
-      <button class="btn primary" id="cal-copy" style="margin-bottom:10px">🔗 Скопіювати посилання</button>
+      <button class="btn primary" id="cal-copy" style="margin-bottom:10px" ${live ? '' : 'disabled'}>🔗 Скопіювати посилання</button>
       <details class="howto"><summary>Як підписатись на iPhone (раз)</summary>
         <ol>
           <li>Скопіюй посилання кнопкою вище.</li>
@@ -1321,9 +1324,36 @@
         </ol>
         <div class="section-hint" style="margin-top:6px">Як часто перечитувати стрічку, вирішує сам телефон (зазвичай раз на годину). Підписаний календар доступний лише для читання — редагуй події тут, у застосунку.</div>
       </details>
-      <button class="btn ghost" id="cal-push" style="margin:10px 0">⬆️ Оновити стрічку зараз</button>
+      <button class="btn ${live ? 'ghost' : 'primary'}" id="cal-push" style="margin:10px 0">⬆️ Оновити стрічку зараз</button>
       <button class="btn danger" id="cal-off">Вимкнути</button>
     </div>`;
+  }
+
+  /* Статус у налаштуваннях — це знімок на момент відкриття. Заливання
+     триває секунди, тож без цього на екрані назавжди застигало б
+     «оновлюю…», і не було б видно ні успіху, ні помилки. */
+  function bindLiveStatus() {
+    if (window.CalFeed) window.CalFeed.onChange((st) => {
+      const el = $('#cal-state');
+      if (!el) return;
+      el.className = st.state === 'error' ? 'bk-warn' : (st.state === 'synced' ? 'bk-ok' : '');
+      el.textContent = (CAL_STATE_TEXT[st.state] || st.state) + (st.error ? ': ' + st.error : '');
+      const c = window.CalFeed.config();
+      const meta = $('#cal-meta');
+      if (meta && c) {
+        const when = c.lastAt ? new Date(c.lastAt).toLocaleString('uk-UA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+        meta.textContent = `оновлено: ${when} · подій: ${c.count}`;
+      }
+      // перша вдала заливка вмикає кнопку копіювання й прибирає попередження
+      if (st.state === 'synced' && $('#cal-copy') && $('#cal-copy').disabled) openSettings();
+    });
+
+    if (window.GitSync) window.GitSync.onChange((st) => {
+      const el = $('#git-state');
+      if (!el) return;
+      el.className = (st.state === 'error' || st.state === 'needs-confirm') ? 'bk-warn' : (st.state === 'synced' ? 'bk-ok' : '');
+      el.textContent = (GIT_STATE_TEXT[st.state] || st.state) + (st.error ? ': ' + st.error : '');
+    });
   }
 
   function calEnable() {
@@ -1850,6 +1880,7 @@
 
     bind();
     bindLate();
+    bindLiveStatus();
     setupDragAndDrop();
     setupAreaSwipe();
     setArea(S.area()); // відновлює обраний розділ і малює список

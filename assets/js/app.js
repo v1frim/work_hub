@@ -811,11 +811,13 @@
   function notifyHintHTML() {
     const canNotify = 'Notification' in window;
     const granted = canNotify && Notification.permission === 'granted';
-    if (granted) return '';
     return `<div class="notify-hint">
-      <div>Сповіщення у шторці телефона надсилає <b>Календар</b> — кнопкою 📅 додай туди подію разом з її нагадуваннями.</div>
-      ${canNotify && Notification.permission !== 'denied'
-        ? `<button class="link-btn" id="ask-notify">Дозволити сповіщення й у застосунку</button>` : ''}
+      <div><b>📅 = покласти подію в Календар.</b> Саме він потім нагадає у шторці — навіть коли цей застосунок закритий.</div>
+      <div style="margin-top:6px">У вікні «Поділитися» Календаря немає: обери <b>Telegram</b> (собі в «Обране») або <b>Зберегти до Файлів</b>, а тоді <b>відкрий сам файл</b> — Календар запропонує «Додати все».</div>
+      ${granted
+        ? `<div style="margin-top:6px" class="bk-ok">Сповіщення в застосунку дозволені — він нагадає й сам, поки відкритий.</div>`
+        : (canNotify && Notification.permission !== 'denied'
+          ? `<button class="link-btn" id="ask-notify">Дозволити сповіщення й у застосунку</button>` : '')}
     </div>`;
   }
 

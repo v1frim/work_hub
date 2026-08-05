@@ -156,9 +156,10 @@
     return s;
   }
 
-  // Хук для модуля синхронізації: стор нічого не знає про GitHub,
-  // лише повідомляє «я змінився».
-  let onSavedHook = null;
+  // Хуки для модулів синхронізації: стор нічого не знає про GitHub,
+  // лише повідомляє «я змінився». Підписників кілька (копія даних і
+  // стрічка для Календаря), тому тримаємо список, а не одне поле.
+  const onSavedHooks = [];
 
   function save() {
     try {
@@ -172,7 +173,7 @@
     } catch (e) {
       console.error('Не вдалося зберегти дані', e);
     }
-    if (onSavedHook) { try { onSavedHook(); } catch (e) { console.warn(e); } }
+    for (const fn of onSavedHooks) { try { fn(); } catch (e) { console.warn(e); } }
   }
 
   /* ---------- Демо-дані для першого запуску ---------- */
@@ -703,10 +704,11 @@
     if (data.alerts) data.alerts = data.alerts.slice(0, MAX_ALERTS);
     if (data.id) {
       const i = state.reminders.findIndex((r) => r.id === data.id);
-      if (i >= 0) state.reminders[i] = Object.assign({}, state.reminders[i], data);
+      if (i >= 0) state.reminders[i] = Object.assign({}, state.reminders[i], data, { updatedAt: new Date().toISOString() });
     } else {
       data.id = uid();
       data.createdAt = new Date().toISOString();
+      data.updatedAt = data.createdAt;
       data.notified = {};
       state.reminders.push(data);
     }
@@ -777,17 +779,32 @@
     return `-PT${minutes}M`;
   }
 
-  function buildICS(list) {
+  /* opts.name — назва календаря, opts.feed — файл для підписки (стрічка).
+     Стрічка мусить бути ДЕТЕРМІНОВАНОЮ: той самий набір подій → байт у байт
+     той самий файл. Інакше кожне заливання виглядало б як зміна й плодило
+     коміти. Тому DTSTAMP беремо з самої події, а не з «зараз». */
+  const ICS_EPOCH = '2024-01-01T00:00:00Z';
+
+  function buildICS(list, opts) {
+    const o = opts || {};
     const now = new Date();
     const lines = [
       'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Work Hub//UA', 'CALSCALE:GREGORIAN',
     ];
+    if (o.name) lines.push(`X-WR-CALNAME:${icsEscape(o.name)}`);
+    if (o.feed) {
+      lines.push('METHOD:PUBLISH');
+      // підказка Календарю, як часто перечитувати стрічку
+      lines.push('REFRESH-INTERVAL;VALUE=DURATION:PT1H');
+      lines.push('X-PUBLISHED-TTL:PT1H');
+    }
     for (const r of list) {
       const date = r.yearly ? r.date : nextEventDate(r); // щорічні беруть свій «рік народження»
       const ymd = date.replace(/-/g, '');
       lines.push('BEGIN:VEVENT');
       lines.push(`UID:${r.id}@work-hub`);
-      lines.push(`DTSTAMP:${icsStamp(now)}`);
+      const stampSrc = o.feed ? new Date(r.updatedAt || r.createdAt || ICS_EPOCH) : now;
+      lines.push(`DTSTAMP:${icsStamp(isNaN(stampSrc) ? new Date(ICS_EPOCH) : stampSrc)}`);
 
       if (r.time) {
         const [h, mi] = r.time.split(':');
@@ -902,7 +919,7 @@
     // сервіс
     exportJSON, importJSON, resetAll, save, uid,
     markBackup, daysSinceBackup, backupFileName,
-    setOnSaved: (fn) => { onSavedHook = fn; },
+    setOnSaved: (fn) => { onSavedHooks.push(fn); },
     raw: () => state,
   };
 })();

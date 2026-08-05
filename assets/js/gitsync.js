@@ -225,6 +225,8 @@
   window.GitSync = {
     configured: () => !!cfg,
     config: () => (cfg ? { repo: cfg.repo, path: cfg.path, lastAt: cfg.lastAt || null } : null),
+    // щоб не просити той самий токен двічі (стрічка подій для Календаря)
+    token: () => (cfg ? cfg.token : null),
     status: () => status,
     onChange: (fn) => { listeners.push(fn); },
     connect, disconnect, restore,

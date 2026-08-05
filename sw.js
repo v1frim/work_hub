@@ -10,7 +10,7 @@
      застосунку без жодних дій з боку користувача.
    ========================================================================== */
 
-const VERSION = 'v18';
+const VERSION = 'v19';
 const CACHE = `work-hub-${VERSION}`;
 
 const ASSETS = [
@@ -19,6 +19,7 @@ const ASSETS = [
   './assets/css/styles.css',
   './assets/js/store.js',
   './assets/js/gitsync.js',
+  './assets/js/calfeed.js',
   './assets/js/app.js',
   './manifest.webmanifest',
   './assets/icons/icon.svg',

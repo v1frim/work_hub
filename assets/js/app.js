@@ -811,13 +811,27 @@
   function notifyHintHTML() {
     const canNotify = 'Notification' in window;
     const granted = canNotify && Notification.permission === 'granted';
+    const feedOn = window.CalFeed && window.CalFeed.enabled();
+
+    const notifyLine = granted
+      ? `<div style="margin-top:6px" class="bk-ok">Сповіщення в застосунку дозволені — він нагадає й сам, поки відкритий.</div>`
+      : (canNotify && Notification.permission !== 'denied'
+        ? `<button class="link-btn" id="ask-notify">Дозволити сповіщення й у застосунку</button>` : '');
+
+    // Синхронізація увімкнена: нічого робити руками не треба
+    if (feedOn) {
+      return `<div class="notify-hint">
+        <div class="bk-ok"><b>Події їдуть у Календар самі.</b> Він і нагадає у шторці — навіть коли застосунок закритий.</div>
+        <div style="margin-top:6px">Телефон перечитує стрічку сам (зазвичай раз на годину). Треба негайно — кнопка 📅 біля події кладе її в Календар одразу.</div>
+        ${notifyLine}
+      </div>`;
+    }
+
     return `<div class="notify-hint">
       <div><b>📅 = покласти подію в Календар.</b> Саме він потім нагадає у шторці — навіть коли цей застосунок закритий.</div>
       <div style="margin-top:6px">У вікні «Поділитися» Календаря немає: обери <b>Telegram</b> (собі в «Обране») або <b>Зберегти до Файлів</b>, а тоді <b>відкрий сам файл</b> — Календар запропонує «Додати все».</div>
-      ${granted
-        ? `<div style="margin-top:6px" class="bk-ok">Сповіщення в застосунку дозволені — він нагадає й сам, поки відкритий.</div>`
-        : (canNotify && Notification.permission !== 'denied'
-          ? `<button class="link-btn" id="ask-notify">Дозволити сповіщення й у застосунку</button>` : '')}
+      <button class="link-btn" id="cal-setup">⚙️ Налаштувати, щоб події переносились самі</button>
+      ${notifyLine}
     </div>`;
   }
 
@@ -1124,8 +1138,11 @@
     closeSheet();
     toast(isNew ? 'Подію додано' : 'Збережено');
     renderEvents();
-    // одразу пропонуємо покласти в Календар — саме він і нагадає
-    if (isNew) setTimeout(() => shareICS([S.getReminder(id)]), 400);
+    // Якщо стрічка ввімкнена, подія поїде в Календар сама — не смикаємо
+    // «Поділитися». Інакше одразу пропонуємо покласти її туди руками.
+    if (isNew && !(window.CalFeed && window.CalFeed.enabled())) {
+      setTimeout(() => shareICS([S.getReminder(id)]), 400);
+    }
   }
 
   /* Віддати подію системному Календарю. На iPhone відкриється «Поділитися»,
@@ -1235,11 +1252,101 @@
       <div class="field"><label>Звук</label>
         <button class="btn ghost" id="sound-btn">${S.soundOn() ? '🔊 Звук виконання: увімкнено' : '🔇 Звук виконання: вимкнено'}</button>
       </div>
+      ${calFeedHTML()}
       ${gitSyncHTML()}
       <div class="field"><label>Небезпечна зона</label>
         <button class="btn danger" id="reset-btn">Скинути всі дані</button></div>
       <div class="section-hint" style="text-align:center;margin-top:18px">Work Hub · офлайн-трекер задач</div>`;
     openSheet();
+  }
+
+  /* ---------- Синхронізація подій із системним Календарем ----------
+     Записати подію просто в Календар браузер не може. Зате Календар уміє
+     сам ходити за файлом .ics по посиланню — цим і користуємось. */
+
+  const CAL_STATE_TEXT = {
+    off: 'вимкнено',
+    idle: 'очікує змін',
+    syncing: 'оновлюю…',
+    synced: 'стрічку оновлено ✓',
+    error: 'помилка',
+  };
+
+  function calFeedHTML() {
+    const C = window.CalFeed;
+    if (!C) return '';
+
+    if (!C.enabled()) {
+      const g = C.guess();
+      const hasGitToken = window.GitSync && window.GitSync.configured();
+      return `<div class="field"><label>Події в Календарі телефона</label>
+        <div class="section-hint" style="margin:0 0 10px">Календар уміє сам забирати події за посиланням. Увімкни — і кожна нова подія доїжджатиме в нього без твоєї участі (підписатись треба лише раз).</div>
+        <input type="text" id="cal-repo" placeholder="власник/репозиторій" value="${esc(g.repo)}" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <input type="text" id="cal-branch" placeholder="гілка (gh-pages)" value="${esc(g.branch)}" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:8px">
+        <input type="text" id="cal-token" placeholder="токен GitHub" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:8px">
+        ${hasGitToken ? `<button class="link-btn" id="cal-usegit">Взяти токен від автокопії</button>` : ''}
+        <button class="btn ghost" id="cal-enable" style="margin-top:10px">📆 Увімкнути синхронізацію</button>
+        <div class="section-hint" style="margin-top:8px">Це той самий репозиторій, з якого відкривається застосунок, і той самий токен (право <b>Contents: Read and write</b>). Файл ляже за випадковою адресою — вгадати її неможливо, але це <b>публічне</b> посилання, тож таємниць у назвах подій краще не тримати.</div>
+      </div>`;
+    }
+
+    const c = C.config();
+    const st = C.status();
+    const cls = st.state === 'error' ? 'bk-warn' : (st.state === 'synced' ? 'bk-ok' : '');
+    const when = c.lastAt ? new Date(c.lastAt).toLocaleString('uk-UA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+
+    return `<div class="field"><label>Події в Календарі телефона</label>
+      <div class="bk-status" id="cal-info">
+        <div id="cal-state" class="${cls}">${CAL_STATE_TEXT[st.state] || st.state}${st.error ? ': ' + esc(st.error) : ''}</div>
+        <div>оновлено: ${when} · подій: ${c.count}</div>
+      </div>
+      <div class="feed-url" id="cal-url">${esc(c.webcal)}</div>
+      <button class="btn primary" id="cal-copy" style="margin-bottom:10px">🔗 Скопіювати посилання</button>
+      <details class="howto"><summary>Як підписатись на iPhone (раз)</summary>
+        <ol>
+          <li>Скопіюй посилання кнопкою вище.</li>
+          <li>Налаштування → Програми → <b>Календар</b> → Облікові записи → <b>Додати обліковий запис</b> → <b>Інше</b> → <b>Додати передплачений календар</b>.</li>
+          <li>Встав посилання → <b>Далі</b> → <b>Зберегти</b>.</li>
+          <li>У тому ж вікні лишай <b>«Вилучити сигнали» вимкненим</b> — інакше нагадування не спрацюють.</li>
+        </ol>
+        <div class="section-hint" style="margin-top:6px">Як часто перечитувати стрічку, вирішує сам телефон (зазвичай раз на годину). Підписаний календар доступний лише для читання — редагуй події тут, у застосунку.</div>
+      </details>
+      <button class="btn ghost" id="cal-push" style="margin:10px 0">⬆️ Оновити стрічку зараз</button>
+      <button class="btn danger" id="cal-off">Вимкнути</button>
+    </div>`;
+  }
+
+  function calEnable() {
+    const sh = $('#sheet');
+    const repo = $('#cal-repo', sh).value;
+    const branch = $('#cal-branch', sh).value;
+    const token = $('#cal-token', sh).value;
+    toast('Перевіряю доступ…');
+    window.CalFeed.enable({ repo, branch, token })
+      .then(() => {
+        openSettings();
+        toast('Готово — лишилось підписатись у Календарі');
+        renderEvents();
+      })
+      .catch((err) => toast('Не вдалося: ' + err.message));
+  }
+
+  async function calCopy() {
+    const url = window.CalFeed.config().webcal;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('Посилання скопійовано');
+    } catch (e) {
+      // clipboard недоступний (немає https або дозволу) — даємо виділити вручну
+      const el = $('#cal-url');
+      if (el) {
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(r);
+      }
+      toast('Скопіюй посилання вручну');
+    }
   }
 
   /* ---------- Автокопія на GitHub ---------- */
@@ -1515,6 +1622,7 @@
       }
       if (e.target.closest('#toggle-past')) { showPastEvents = !showPastEvents; renderEvents(); return; }
       if (e.target.closest('#ask-notify')) { askNotifyPermission(); return; }
+      if (e.target.closest('#cal-setup')) { openSettings(); return; }
       const ed = e.target.closest('[data-editevent]');
       if (ed) openEventSheet(ed.dataset.editevent);
     });
@@ -1629,6 +1737,32 @@
       S.setSound(on);
       openSettings();
       if (on) playDoneSound();   // одразу чути, як воно звучить
+      return;
+    }
+
+    // --- стрічка подій для Календаря ---
+    if (e.target.closest('#cal-usegit')) {
+      $('#cal-token', $('#sheet')).value = window.GitSync.token() || '';
+      toast('Токен підставлено');
+      return;
+    }
+    if (e.target.closest('#cal-enable')) { calEnable(); return; }
+    if (e.target.closest('#cal-copy')) { calCopy(); return; }
+    if (e.target.closest('#cal-push')) {
+      toast('Оновлюю…');
+      window.CalFeed.publishNow({ force: true }).then((ok) => {
+        toast(ok ? 'Стрічку оновлено' : ('Не вдалося: ' + (window.CalFeed.status().error || '')));
+        openSettings();
+      });
+      return;
+    }
+    if (e.target.closest('#cal-off')) {
+      if (!confirm('Вимкнути синхронізацію з Календарем? Файл стрічки буде прибрано, і підписка в Календарі спорожніє.')) return;
+      window.CalFeed.disable().then(() => {
+        openSettings();
+        renderEvents();
+        toast('Синхронізацію вимкнено');
+      });
       return;
     }
 

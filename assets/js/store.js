@@ -75,7 +75,7 @@
 
   function blankState() {
     return {
-      version: 2,
+      version: 3,
       tasks: [],
       goals: [],
       events: [], // журнал виконань {id, date, ts, taskId, title, area, complexity, recurring}
@@ -106,32 +106,45 @@
      на нову (розділ Робота/Особисте + складність легке/середнє/складне).
      Записи користувача зберігаються — лише переносяться в нові поля. */
   function migrate(s) {
-    if (s.version >= 2 && s.tasks.every((t) => t.area)) return s;
+    // v2: списки й тип → розділ + складність
+    if (!(s.version >= 2 && s.tasks.every((t) => t.area))) {
+      // старий список «Особисте» → особистий розділ, решта → робота
+      const areaOf = (o) => (o.area ? o.area : (o.listId === 'personal' ? 'personal' : 'work'));
+      // проста → легке, складна → складне (середнє зʼявляється лише вручну)
+      const cxOf = (o) => {
+        if (COMPLEXITY[o.complexity]) return o.complexity;
+        if (o.complexity === 'complex') return 'hard';
+        return 'easy';
+      };
 
-    // старий список «Особисте» → особистий розділ, решта → робота
-    const areaOf = (o) => (o.area ? o.area : (o.listId === 'personal' ? 'personal' : 'work'));
-    // проста → легке, складна → складне (середнє зʼявляється лише вручну)
-    const cxOf = (o) => {
-      if (COMPLEXITY[o.complexity]) return o.complexity;
-      if (o.complexity === 'complex') return 'hard';
-      return 'easy';
-    };
+      for (const t of s.tasks) {
+        t.area = areaOf(t);
+        t.complexity = cxOf(t);
+        delete t.kind; delete t.listId;
+      }
+      for (const g of s.goals) {
+        if (!g.area) g.area = 'work';
+      }
+      for (const e of s.events) {
+        e.area = areaOf(e);
+        e.complexity = cxOf(e);
+        delete e.kind; delete e.listId;
+      }
+      delete s.lists;
+      s.version = 2;
+    }
 
-    for (const t of s.tasks) {
-      t.area = areaOf(t);
-      t.complexity = cxOf(t);
-      delete t.kind; delete t.listId;
+    // v3: щомісячне повторення — кілька чисел замість одного
+    if (!(s.version >= 3)) {
+      for (const t of s.tasks) {
+        const r = t.recurrence;
+        if (r && r.type === 'monthly' && !Array.isArray(r.daysOfMonth)) {
+          r.daysOfMonth = [Math.min(31, Math.max(1, r.dayOfMonth || 1))];
+          delete r.dayOfMonth;
+        }
+      }
+      s.version = 3;
     }
-    for (const g of s.goals) {
-      if (!g.area) g.area = 'work';
-    }
-    for (const e of s.events) {
-      e.area = areaOf(e);
-      e.complexity = cxOf(e);
-      delete e.kind; delete e.listId;
-    }
-    delete s.lists;
-    s.version = 2;
     return s;
   }
 
@@ -176,14 +189,14 @@
       mk({ title: 'Додати парасольки та підголівники «Нехай Бог» до Розетки', bucket: 'today', complexity: 'medium' }),
       mk({ title: 'Закинути в план постів', bucket: 'today', complexity: 'hard',
         subtasks: [{ id: uid(), title: 'Ідея посту', done: false }, { id: uid(), title: 'Візуал', done: false }] }),
-      mk({ title: 'Податки', complexity: 'hard', recurrence: { type: 'monthly', dayOfMonth: 20 }, dueDate: t, bucket: 'today' }),
+      mk({ title: 'Податки', complexity: 'hard', recurrence: { type: 'monthly', daysOfMonth: [20] }, dueDate: t, bucket: 'today' }),
       mk({ title: 'Передоплати', recurrence: { type: 'daily' }, dueDate: addDays(t, 1), bucket: 'tomorrow' }),
       mk({ title: 'Замовити з Temu', recurrence: { type: 'weekly', weekdays: [5] }, dueDate: nextWeekdayDate(t, [5]), bucket: 'week' }),
       mk({ title: 'Пост', complexity: 'medium', recurrence: { type: 'weekly', weekdays: [6] }, dueDate: nextWeekdayDate(t, [6]), remindAt: '19:30', bucket: 'week' }),
-      mk({ title: 'Пробити чеки за минулий місяць (Приват) та 2924', complexity: 'medium', recurrence: { type: 'monthly', dayOfMonth: 1 }, dueDate: addDays(t, 7), bucket: 'later' }),
+      mk({ title: 'Пробити чеки за минулий місяць (Приват) та 2924', complexity: 'medium', recurrence: { type: 'monthly', daysOfMonth: [1] }, dueDate: addDays(t, 7), bucket: 'later' }),
       // --- особисті ---
       mk({ area: 'personal', title: 'Зарядка', recurrence: { type: 'daily' }, dueDate: t, bucket: 'today' }),
-      mk({ area: 'personal', title: 'Комуналка', complexity: 'medium', recurrence: { type: 'monthly', dayOfMonth: 15 }, dueDate: addDays(t, 6), bucket: 'later' }),
+      mk({ area: 'personal', title: 'Комуналка', complexity: 'medium', recurrence: { type: 'monthly', daysOfMonth: [15, 31] }, dueDate: addDays(t, 6), bucket: 'later' }),
       mk({ area: 'personal', title: 'Утеплення стін', complexity: 'hard', bucket: 'week', dueDate: addDays(t, 3),
         subtasks: [{ id: uid(), title: 'Порахувати матеріали', done: false }, { id: uid(), title: 'Знайти бригаду', done: false }] }),
     ].map((task, i) => Object.assign(task, { order: i }));
@@ -225,11 +238,23 @@
       case 'weekly': return nextWeekdayDate(fromS, (rec.weekdays && rec.weekdays.length) ? rec.weekdays : [fromStr(fromS).getDay()]);
       case 'monthly': {
         const d = fromStr(fromS);
-        const dom = rec.dayOfMonth || d.getDate();
-        const nx = new Date(d.getFullYear(), d.getMonth() + 1, 1);
-        const last = new Date(nx.getFullYear(), nx.getMonth() + 1, 0).getDate();
-        nx.setDate(Math.min(dom, last));
-        return toStr(nx);
+        // підтримуємо і старий одиничний dayOfMonth
+        let days = Array.isArray(rec.daysOfMonth) && rec.daysOfMonth.length
+          ? rec.daysOfMonth.slice()
+          : [rec.dayOfMonth || d.getDate()];
+        days = days.map((x) => Math.min(31, Math.max(1, x))).sort((a, b) => a - b);
+
+        // найближче з обраних чисел, що йде після fromS; 31 у короткому
+        // місяці означає останній день (30, 29 або 28)
+        for (let m = 0; m <= 12; m++) {
+          const base = new Date(d.getFullYear(), d.getMonth() + m, 1);
+          const last = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+          for (const day of days) {
+            const cand = toStr(new Date(base.getFullYear(), base.getMonth(), Math.min(day, last)));
+            if (cand > fromS) return cand;
+          }
+        }
+        return addDays(fromS, 30);
       }
       default: return null; // once
     }

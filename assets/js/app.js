@@ -850,8 +850,15 @@
       recExtra = `<div class="field"><label>Дні тижня</label><div class="weekday-row">` +
         order.map((i) => `<div class="wd ${wd.includes(i) ? 'on' : ''}" data-wd="${i}">${S.WEEKDAYS_SHORT[i]}</div>`).join('') + `</div></div>`;
     } else if (rec.type === 'monthly') {
-      recExtra = `<div class="field"><label>Число місяця</label>
-        <input type="number" min="1" max="31" id="rec-dom" value="${rec.dayOfMonth || 1}"></div>`;
+      const sel = Array.isArray(rec.daysOfMonth) ? rec.daysOfMonth : [];
+      let cells = '';
+      for (let i = 1; i <= 31; i++) {
+        cells += `<div class="dom ${sel.includes(i) ? 'on' : ''}" data-dom="${i}">${i}</div>`;
+      }
+      recExtra = `<div class="field"><label>Числа місяця</label>
+        <div class="dom-grid">${cells}</div>
+        <div class="section-hint" style="margin-top:8px">Можна обрати кілька. Якщо обрати <b>31</b>, у коротких місяцях задача стане на останній день (30, 29 або 28).</div>
+      </div>`;
     }
 
     // група/дата — тільки для разових
@@ -903,7 +910,6 @@
     if (g('#t-remind')) draft.remindAt = g('#t-remind').value || null;
     if (g('#due-date')) { const v = g('#due-date').value; draft.dueDate = v || null; }
     if (g('#rec-interval')) draft.recurrence.interval = Math.max(1, +g('#rec-interval').value || 1);
-    if (g('#rec-dom')) draft.recurrence.dayOfMonth = Math.min(31, Math.max(1, +g('#rec-dom').value || 1));
     if (g('#subedit')) {
       $$('[data-subidx]', $('#sheet')).forEach((inp) => {
         const i = +inp.dataset.subidx;
@@ -917,6 +923,17 @@
     if (!draft.title.trim()) { toast('Вкажи назву задачі'); return; }
     // очистити порожні підзадачі
     draft.subtasks = (draft.subtasks || []).filter((s) => s.title.trim());
+
+    // якщо для повторення не обрано жодного дня — беремо сьогоднішній,
+    // інакше задача не мала б коли зʼявитись
+    const rec = draft.recurrence;
+    if (rec.type === 'monthly' && !(rec.daysOfMonth && rec.daysOfMonth.length)) {
+      rec.daysOfMonth = [S.fromStr(S.todayStr()).getDate()];
+    }
+    if (rec.type === 'weekly' && !(rec.weekdays && rec.weekdays.length)) {
+      rec.weekdays = [S.fromStr(S.todayStr()).getDay()];
+    }
+
     // для регулярних без дати — стартуємо від сьогодні
     if (draft.recurrence.type !== 'once' && !draft.dueDate) draft.dueDate = S.todayStr();
     // isNew треба зчитати ДО збереження (upsertTask проставляє id)
@@ -1272,7 +1289,17 @@
       draft.recurrence = { type };
       if (type === 'interval') draft.recurrence.interval = 2;
       if (type === 'weekly') draft.recurrence.weekdays = [S.fromStr(S.todayStr()).getDay()];
-      if (type === 'monthly') draft.recurrence.dayOfMonth = S.fromStr(S.todayStr()).getDate();
+      if (type === 'monthly') draft.recurrence.daysOfMonth = [S.fromStr(S.todayStr()).getDate()];
+      renderTaskSheet(!!draft.id); return;
+    }
+    const dom = e.target.closest('[data-dom]');
+    if (dom) {
+      syncTaskInputs();
+      const n = +dom.dataset.dom;
+      const arr = draft.recurrence.daysOfMonth || (draft.recurrence.daysOfMonth = []);
+      const at = arr.indexOf(n);
+      if (at >= 0) arr.splice(at, 1); else arr.push(n);
+      arr.sort((a, b) => a - b);
       renderTaskSheet(!!draft.id); return;
     }
     const wd = e.target.closest('[data-wd]');

@@ -393,6 +393,34 @@
     return { done, total: done + pending };
   }
 
+  /* Порядок задач у групі: спершу невиконані, далі за датою (раніші вище),
+     і лише потім за ручним порядком — інакше задача на 1 вересня могла
+     стояти над задачею на 15 серпня. */
+  /* Дата для порівняння. Якщо в задачі її немає, беремо день її групи —
+     інакше безстрокові задачі провалювались би в кінець списку, хоча вони
+     стоять на той самий день, що й сусіди. */
+  function effectiveDate(t) {
+    if (t.dueDate) return t.dueDate;
+    const day = todayStr();
+    switch (t.bucket || 'today') {
+      case 'tomorrow': return addDays(day, 1);
+      case 'week': return addDays(day, 2);
+      case 'later': return addDays(day, 8);
+      default: return day;
+    }
+  }
+
+  function compareForDisplay(a, b) {
+    const done = (isDoneToday(a) ? 1 : 0) - (isDoneToday(b) ? 1 : 0);
+    if (done) return done;
+    const da = effectiveDate(a);
+    const db = effectiveDate(b);
+    if (da !== db) return da < db ? -1 : 1;
+    return (a.order || 0) - (b.order || 0);
+  }
+
+  function sortTasks(list) { return list.slice().sort(compareForDisplay); }
+
   /* ---------- Архів: що стосується конкретного дня ---------- */
 
   /* Повертає { done, planned } для дати:
@@ -417,7 +445,7 @@
         planned.push(x);
       }
     }
-    planned.sort((a, b) => a.order - b.order);
+    planned.sort(compareForDisplay);
     return { done, planned };
   }
 
@@ -440,18 +468,28 @@
   }
 
   /* Перенести задачу в іншу групу (день) і поставити на позицію index.
-     Дата підбирається під групу; якщо задача вже в потрібному діапазоні
-     («На тижні» / «Потім»), її конкретний день не змінюємо. */
+     У «На тижні» / «Потім» задачі стоять за датою, тож місце падіння
+     задає дату: беремо день сусіда, біля якого впустили. */
   function moveTask(id, targetBucket, index) {
     const task = getTask(id);
     if (!task) return;
     const t = todayStr();
     const d = task.dueDate ? diffDays(task.dueDate, t) : null;
 
+    // задачі групи в тому ж порядку, що й на екрані (без переміщуваної)
+    const inBucket = sortTasks(state.tasks.filter((x) => x.id !== id && bucketOf(x) === targetBucket));
+    const at = Math.max(0, Math.min(index, inBucket.length));
+
     if (targetBucket === 'today') task.dueDate = t;
     else if (targetBucket === 'tomorrow') task.dueDate = addDays(t, 1);
-    else if (targetBucket === 'week') { if (d === null || d < 2 || d > 7) task.dueDate = addDays(t, 2); }
-    else if (targetBucket === 'later') { if (d === null || d <= 7) task.dueDate = addDays(t, 8); }
+    else {
+      const before = inBucket[at - 1];
+      const after = inBucket[at];
+      const neighbour = (before && before.dueDate) || (after && after.dueDate) || null;
+      if (neighbour) task.dueDate = neighbour;
+      else if (targetBucket === 'week') { if (d === null || d < 2 || d > 7) task.dueDate = addDays(t, 2); }
+      else if (d === null || d <= 7) task.dueDate = addDays(t, 8);
+    }
     task.bucket = targetBucket;
 
     // Разова виконана задача при перетягуванні знову стає активною,
@@ -462,13 +500,10 @@
       unlogTodayEvent(task.id);
     }
 
-    // Перебудувати порядок усередині цільової групи
-    const inBucket = state.tasks
-      .filter((x) => x.id !== id && bucketOf(x) === targetBucket)
-      .sort((a, b) => (isDoneToday(a) - isDoneToday(b)) || (a.order - b.order));
-    const at = Math.max(0, Math.min(index, inBucket.length));
-    inBucket.splice(at, 0, task);
-    inBucket.forEach((x, i) => { x.order = i; });
+    // Перебудувати ручний порядок — він вирішує лише серед задач на один день
+    const list = inBucket.slice();
+    list.splice(at, 0, task);
+    list.forEach((x, i) => { x.order = i; });
 
     save();
   }
@@ -663,7 +698,7 @@
     tasks: (area) => (area ? state.tasks.filter((t) => t.area === area) : state.tasks),
     getTask, upsertTask, deleteTask, toggleTask, toggleSubtask, moveTask,
     undoCompletion, todayProgress,
-    isDoneToday, isRecurring, bucketOf, nextOccurrence,
+    isDoneToday, isRecurring, bucketOf, nextOccurrence, sortTasks,
     // архів
     dayEntries, monthMarks,
     // цілі

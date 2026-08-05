@@ -300,14 +300,14 @@
       const keepToday = g.id === 'today' && progress.done > 0;
       if (!items.length && !keepToday) continue;
       anything = true;
-      // сортування: невиконані спершу, потім за порядком
-      items.sort((a, b) => (S.isDoneToday(a) - S.isDoneToday(b)) || (a.order - b.order));
+      // невиконані спершу, далі за датою, і лише потім за ручним порядком
+      const sorted = S.sortTasks(items);
 
       const count = g.id === 'today'
         ? `<span class="group-count ${progress.done === progress.total ? 'full' : ''}">${progress.done}/${progress.total}</span>` : '';
       html += `<section class="group" data-bucket="${g.id}"><div class="group-head">
         <div class="group-title ${g.id}">${g.title.toUpperCase()}</div>${count}</div>`;
-      html += items.length ? items.map(taskCard).join('')
+      html += sorted.length ? sorted.map(taskCard).join('')
         : `<div class="all-done">🎉 Усе на сьогодні виконано</div>`;
       html += `</section>`;
     }

@@ -75,9 +75,10 @@
 
   function blankState() {
     return {
-      version: 3,
+      version: 4,
       tasks: [],
       goals: [],
+      reminders: [], // події: {id, title, note, area, date, time, yearly, alerts:[хв до]}
       events: [], // журнал виконань {id, date, ts, taskId, title, area, complexity, recurring}
       settings: { seeded: false, area: 'work', sound: true },
     };
@@ -92,6 +93,7 @@
       const s = Object.assign(base, parsed, {
         tasks: parsed.tasks || [],
         goals: parsed.goals || [],
+        reminders: parsed.reminders || [],
         events: parsed.events || [],
         settings: Object.assign(base.settings, parsed.settings || {}),
       });
@@ -144,6 +146,12 @@
         }
       }
       s.version = 3;
+    }
+
+    // v4: зʼявились події-нагадування
+    if (!(s.version >= 4)) {
+      if (!Array.isArray(s.reminders)) s.reminders = [];
+      s.version = 4;
     }
     return s;
   }
@@ -631,6 +639,187 @@
     };
   }
 
+  /* ============================================================
+     ПОДІЇ-НАГАДУВАННЯ
+
+     На відміну від задач їх не треба виконувати — вони просто настають.
+     Сповіщення у шторці телефона робить системний Календар: застосунок
+     віддає йому подію з нагадуваннями (файл .ics).
+     ============================================================ */
+
+  // Заготовки «за скільки нагадати» (у хвилинах до події)
+  const ALERT_PRESETS = [
+    { m: 0, label: 'у момент події' },
+    { m: 10, label: 'за 10 хв' },
+    { m: 30, label: 'за 30 хв' },
+    { m: 60, label: 'за годину' },
+    { m: 180, label: 'за 3 години' },
+    { m: 1440, label: 'за добу' },
+    { m: 2880, label: 'за 2 дні' },
+    { m: 10080, label: 'за тиждень' },
+  ];
+  const MAX_ALERTS = 2;
+
+  function alertLabel(m) {
+    const p = ALERT_PRESETS.find((x) => x.m === m);
+    return p ? p.label : `за ${m} хв`;
+  }
+
+  /* Найближча дата події: для щорічних (дні народження, свята) —
+     цьогорічна, а якщо вже минула — наступного року. */
+  function nextEventDate(r) {
+    if (!r.yearly) return r.date;
+    const t = todayStr();
+    const [, mm, dd] = r.date.split('-');
+    const year = fromStr(t).getFullYear();
+    const thisYear = `${year}-${mm}-${dd}`;
+    return thisYear >= t ? thisYear : `${year + 1}-${mm}-${dd}`;
+  }
+
+  // Момент події як Date (для порівнянь із «зараз»)
+  function eventMoment(r) {
+    const d = fromStr(nextEventDate(r));
+    if (r.time) {
+      const [h, mi] = r.time.split(':').map(Number);
+      d.setHours(h, mi, 0, 0);
+    } else {
+      d.setHours(9, 0, 0, 0); // подія на весь день — вважаємо ранок
+    }
+    return d;
+  }
+
+  function reminders(area) {
+    const list = area ? state.reminders.filter((r) => r.area === area) : state.reminders.slice();
+    return list.sort((a, b) => {
+      const da = nextEventDate(a), db = nextEventDate(b);
+      if (da !== db) return da < db ? -1 : 1;
+      return (a.time || '').localeCompare(b.time || '');
+    });
+  }
+
+  function getReminder(id) { return state.reminders.find((r) => r.id === id); }
+
+  function upsertReminder(data) {
+    if (data.alerts) data.alerts = data.alerts.slice(0, MAX_ALERTS);
+    if (data.id) {
+      const i = state.reminders.findIndex((r) => r.id === data.id);
+      if (i >= 0) state.reminders[i] = Object.assign({}, state.reminders[i], data);
+    } else {
+      data.id = uid();
+      data.createdAt = new Date().toISOString();
+      data.notified = {};
+      state.reminders.push(data);
+    }
+    save();
+    return data.id;
+  }
+
+  function deleteReminder(id) {
+    state.reminders = state.reminders.filter((r) => r.id !== id);
+    save();
+  }
+
+  /* Разові події, що вже минули — щоб не захаращували список.
+     Щорічні не чіпаємо: вони просто переходять на наступний рік. */
+  function pastReminders() {
+    const t = todayStr();
+    return state.reminders.filter((r) => !r.yearly && r.date < t)
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+  }
+
+  /* Які нагадування настали й ще не показувались.
+     Вікно тягнеться від часу нагадування до самої події (+година): якщо
+     застосунок був закритий, коли настав час, побачиш його при відкритті —
+     інакше нагадування просто зникло б непоміченим. */
+  function dueAlerts(now) {
+    const at = (now || new Date()).getTime();
+    const out = [];
+    for (const r of state.reminders) {
+      const when = eventMoment(r).getTime();
+      for (const m of (r.alerts || [])) {
+        const fireAt = when - m * 60000;
+        const key = `${nextEventDate(r)}|${m}`;
+        if (at >= fireAt && at <= when + 3600000
+            && !(r.notified && r.notified[key])) {
+          out.push({ reminder: r, minutes: m, key });
+        }
+      }
+    }
+    return out;
+  }
+
+  function markNotified(id, key) {
+    const r = getReminder(id);
+    if (!r) return;
+    if (!r.notified) r.notified = {};
+    r.notified[key] = true;
+    save();
+  }
+
+  /* ---------- Файл для Календаря (.ics) ---------- */
+
+  function icsEscape(s) {
+    return String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;')
+      .replace(/,/g, '\\,').replace(/\n/g, '\\n');
+  }
+
+  function icsStamp(d) {
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}T${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
+  }
+
+  // -PT30M / -PT2H / -P1D / -P1W — як того вимагає формат
+  function icsTrigger(minutes) {
+    if (!minutes) return '-PT0M';
+    if (minutes % 10080 === 0) return `-P${minutes / 10080}W`;
+    if (minutes % 1440 === 0) return `-P${minutes / 1440}D`;
+    if (minutes % 60 === 0) return `-PT${minutes / 60}H`;
+    return `-PT${minutes}M`;
+  }
+
+  function buildICS(list) {
+    const now = new Date();
+    const lines = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Work Hub//UA', 'CALSCALE:GREGORIAN',
+    ];
+    for (const r of list) {
+      const date = r.yearly ? r.date : nextEventDate(r); // щорічні беруть свій «рік народження»
+      const ymd = date.replace(/-/g, '');
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:${r.id}@work-hub`);
+      lines.push(`DTSTAMP:${icsStamp(now)}`);
+
+      if (r.time) {
+        const [h, mi] = r.time.split(':');
+        lines.push(`DTSTART:${ymd}T${h}${mi}00`);
+        const end = new Date(fromStr(date));
+        end.setHours(+h, +mi + 30, 0, 0);
+        const p = (n) => String(n).padStart(2, '0');
+        lines.push(`DTEND:${end.getFullYear()}${p(end.getMonth() + 1)}${p(end.getDate())}T${p(end.getHours())}${p(end.getMinutes())}00`);
+      } else {
+        lines.push(`DTSTART;VALUE=DATE:${ymd}`);
+        lines.push(`DTEND;VALUE=DATE:${addDays(date, 1).replace(/-/g, '')}`);
+      }
+
+      if (r.yearly) lines.push('RRULE:FREQ=YEARLY');
+      lines.push(`SUMMARY:${icsEscape(r.title)}`);
+      const areaLabel = (AREAS[r.area] || AREAS.work).label;
+      lines.push(`DESCRIPTION:${icsEscape(areaLabel + (r.note ? ' · ' + r.note : ''))}`);
+      lines.push(`CATEGORIES:${icsEscape(areaLabel)}`);
+
+      for (const m of (r.alerts || [])) {
+        lines.push('BEGIN:VALARM');
+        lines.push(`TRIGGER:${icsTrigger(m)}`);
+        lines.push('ACTION:DISPLAY');
+        lines.push(`DESCRIPTION:${icsEscape(r.title)}`);
+        lines.push('END:VALARM');
+      }
+      lines.push('END:VEVENT');
+    }
+    lines.push('END:VCALENDAR');
+    return lines.join('\r\n');
+  }
+
   /* ---------- Резервні копії ---------- */
 
   const BACKUP_APP = 'work-hub';
@@ -704,6 +893,10 @@
     // цілі
     goals: (area) => (area ? state.goals.filter((g) => g.area === area) : state.goals),
     getGoal, upsertGoal, deleteGoal, toggleMilestone,
+    // події-нагадування
+    ALERT_PRESETS, MAX_ALERTS, alertLabel,
+    reminders, getReminder, upsertReminder, deleteReminder,
+    nextEventDate, eventMoment, pastReminders, dueAlerts, markNotified, buildICS,
     // статистика
     stats,
     // сервіс

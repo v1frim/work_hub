@@ -331,6 +331,38 @@ body.dragging { cursor: grabbing; }
 .cal-list.readonly .task .check { opacity: .55; }
 .cal-list .task .check[disabled] { pointer-events: none; }
 
+/* ---------- Події-нагадування ---------- */
+.event {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--card); border-radius: var(--radius);
+  padding: 12px 12px 12px 14px; box-shadow: var(--shadow-sm); margin-bottom: 10px;
+}
+.event.is-past { opacity: .55; }
+.event .ev-main { flex: 1; min-width: 0; }
+.event .ev-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 5px; }
+.event .ev-area {
+  font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px;
+  color: #fff; background: var(--a, var(--accent)); border-radius: 999px; padding: 2px 9px;
+}
+.event .ev-tag { font-size: 11px; font-weight: 700; color: var(--text-dim); background: var(--card-2); border-radius: 999px; padding: 2px 8px; }
+.event .ev-rel { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--text-faint); }
+.event .ev-title { font-size: 17px; font-weight: 600; line-height: 1.25; overflow-wrap: break-word; }
+.event .ev-when { font-size: 13px; color: var(--text-dim); margin-top: 3px; }
+.event .ev-note { font-size: 13px; color: var(--text-faint); margin-top: 4px; }
+.event .ev-alerts { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 4px; }
+.event .ev-ics {
+  flex: 0 0 auto; width: 40px; height: 40px; border-radius: 12px;
+  background: var(--card-2); display: grid; place-items: center; font-size: 18px;
+}
+.event .ev-ics:active { background: var(--accent-soft); }
+
+.notify-hint {
+  background: var(--accent-soft); border-radius: 12px; padding: 11px 13px;
+  font-size: 13px; color: var(--text-dim); line-height: 1.35; margin-top: 10px;
+}
+.notify-hint .link-btn { padding: 6px 0 0; font-size: 14px; }
+.past-events { margin-top: 8px; }
+
 /* ---------- Цілі ---------- */
 .goal {
   background: var(--card); border-radius: var(--radius); padding: 16px;

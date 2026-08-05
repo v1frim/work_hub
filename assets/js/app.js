@@ -42,6 +42,7 @@
     if (currentTab === 'stats') renderStats();
     if (currentTab === 'goals') renderGoals();
     if (currentTab === 'calendar') renderCalendar();
+    if (currentTab === 'events') renderEvents();
     renderDrawer();
   }
 
@@ -722,6 +723,103 @@
   }
 
   /* ============================================================
+     ЕКРАН: ПОДІЇ-НАГАДУВАННЯ
+
+     Показуємо обидва розділи разом (з плашкою «Робота»/«Особисте»),
+     бо про день народження треба памʼятати незалежно від того, у якому
+     режимі зараз застосунок.
+     ============================================================ */
+  let showPastEvents = false;
+
+  function renderEvents() {
+    const root = $('#screen-events');
+    const t = S.todayStr();
+    const list = S.reminders().filter((r) => S.nextEventDate(r) >= t);
+    const past = S.pastReminders();
+
+    let html = `<div class="view-title" style="margin:14px 4px 0">Події та нагадування</div>`;
+    html += notifyHintHTML();
+
+    if (!list.length) {
+      html += `<div class="empty"><div class="big">🔔</div>Тут живуть події, які не треба виконувати —<br>дні народження, свята, зустрічі.<br>Натисни «+», щоб додати.</div>`;
+    } else {
+      // групуємо: сьогодні / цього тижня / далі
+      const groups = { today: [], week: [], later: [] };
+      for (const r of list) {
+        const d = S.diffDays(S.nextEventDate(r), t);
+        if (d === 0) groups.today.push(r);
+        else if (d <= 7) groups.week.push(r);
+        else groups.later.push(r);
+      }
+      const titles = { today: 'Сьогодні', week: 'Найближчі 7 днів', later: 'Далі' };
+      for (const k of ['today', 'week', 'later']) {
+        if (!groups[k].length) continue;
+        html += `<section class="group"><div class="group-head">
+          <div class="group-title ${k === 'today' ? 'today' : 'later'}">${titles[k].toUpperCase()}</div></div>`;
+        html += groups[k].map(eventCard).join('');
+        html += `</section>`;
+      }
+    }
+
+    if (past.length) {
+      html += `<button class="link-btn" id="toggle-past" style="margin-top:14px">${showPastEvents ? '▾' : '▸'} Минулі (${past.length})</button>`;
+      if (showPastEvents) html += `<div class="past-events">${past.map(eventCard).join('')}</div>`;
+    }
+
+    if (list.length) {
+      html += `<button class="btn ghost" id="ics-all" style="margin-top:18px">📅 Додати всі події в Календар</button>`;
+    }
+    root.innerHTML = html;
+  }
+
+  function eventCard(r) {
+    const area = S.AREAS[r.area] || S.AREAS.work;
+    const date = S.nextEventDate(r);
+    const t = S.todayStr();
+    const d = S.diffDays(date, t);
+    const wd = S.WEEKDAYS_SHORT[S.fromStr(date).getDay()];
+
+    let when = `${S.humanDate(date)}, ${wd}`;
+    if (r.time) when += ` о ${esc(r.time)}`;
+    let rel = '';
+    if (d === 0) rel = 'сьогодні';
+    else if (d === 1) rel = 'завтра';
+    else if (d > 1) rel = `через ${d} дн.`;
+    else rel = `${-d} дн. тому`;
+
+    const alerts = (r.alerts || []).map((m) =>
+      `<span class="mark recur">${ICON.bell}${esc(S.alertLabel(m))}</span>`).join('');
+
+    return `<div class="event ${d < 0 ? 'is-past' : ''}" data-event="${r.id}">
+      <div class="ev-main" data-editevent="${r.id}">
+        <div class="ev-top">
+          <span class="ev-area" style="--a:${area.accent}">${area.label}</span>
+          ${r.yearly ? `<span class="ev-tag">🎂 щороку</span>` : ''}
+          <span class="ev-rel">${rel}</span>
+        </div>
+        <div class="ev-title">${esc(r.title)}</div>
+        <div class="ev-when">${when}</div>
+        ${r.note ? `<div class="ev-note">${esc(r.note)}</div>` : ''}
+        ${alerts ? `<div class="ev-alerts">${alerts}</div>` : ''}
+      </div>
+      <button class="ev-ics" data-ics="${r.id}" title="Додати в Календар">📅</button>
+    </div>`;
+  }
+
+  /* Підказка про те, як влаштовані сповіщення. Чесно: у шторці їх шле
+     Календар телефона, бо застосунок цього робити не може, коли закритий. */
+  function notifyHintHTML() {
+    const canNotify = 'Notification' in window;
+    const granted = canNotify && Notification.permission === 'granted';
+    if (granted) return '';
+    return `<div class="notify-hint">
+      <div>Сповіщення у шторці телефона надсилає <b>Календар</b> — кнопкою 📅 додай туди подію разом з її нагадуваннями.</div>
+      ${canNotify && Notification.permission !== 'denied'
+        ? `<button class="link-btn" id="ask-notify">Дозволити сповіщення й у застосунку</button>` : ''}
+    </div>`;
+  }
+
+  /* ============================================================
      ЕКРАН: ЦІЛІ
      ============================================================ */
   function renderGoals() {
@@ -784,6 +882,8 @@
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>Задачі</div>`;
     html += `<div class="d-item" data-goto="stats">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Статистика</div>`;
+    html += `<div class="d-item" data-goto="events">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>Події та нагадування</div>`;
     html += `<div class="d-item" data-goto="goals">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>Цілі</div>`;
     html += `<div class="d-item" data-goto="calendar">
@@ -943,6 +1043,113 @@
     closeSheet();
     toast(isNew ? 'Додано' : 'Збережено');
     renderAll();
+  }
+
+  /* ============================================================
+     ФОРМА ПОДІЇ
+     ============================================================ */
+  function openEventSheet(id) {
+    const existing = id ? S.getReminder(id) : null;
+    draft = existing ? JSON.parse(JSON.stringify(existing)) : {
+      title: '', note: '', area: S.area(), date: S.todayStr(),
+      time: '', yearly: false, alerts: [1440],
+    };
+    renderEventSheet(!!existing);
+    openSheet();
+  }
+
+  function renderEventSheet(isEdit) {
+    const d = draft;
+    const areaChips = Object.entries(S.AREAS).map(([k, v]) =>
+      `<button class="chip ${d.area === k ? 'on' : ''}" data-evarea="${k}">
+        <span class="dot" style="background:${v.accent}"></span>${v.label}</button>`).join('');
+
+    const alerts = d.alerts || [];
+    const alertChips = S.ALERT_PRESETS.map((p) =>
+      `<button class="chip ${alerts.includes(p.m) ? 'on' : ''}" data-alert="${p.m}">${p.label}</button>`).join('');
+
+    $('#sheet').innerHTML = `
+      <div class="grabber"></div>
+      <button class="close-x" data-close>✕</button>
+      <h2>${isEdit ? 'Редагувати подію' : 'Нова подія'}</h2>
+      <div class="section-hint">Подію не треба виконувати — вона просто настає. Нагадування прийде у Календарі телефона.</div>
+
+      <div class="field"><label>Що саме</label>
+        <input type="text" id="e-title" value="${esc(d.title)}" placeholder="Напр. День народження мами" autocomplete="off"></div>
+
+      <div class="field"><label>Розділ</label><div class="chips">${areaChips}</div></div>
+
+      <div class="field"><label>Дата</label>
+        <input type="date" id="e-date" value="${d.date || ''}"></div>
+
+      <div class="field"><label>Час (необовʼязково)</label>
+        <input type="time" id="e-time" value="${d.time || ''}">
+        <div class="section-hint" style="margin-top:6px">Без часу подія вважається на весь день.</div></div>
+
+      <div class="field"><label>Повторення</label>
+        <div class="chips">
+          <button class="chip ${!d.yearly ? 'on' : ''}" data-yearly="0">Один раз</button>
+          <button class="chip ${d.yearly ? 'on' : ''}" data-yearly="1">🎂 Щороку</button>
+        </div>
+        <div class="section-hint" style="margin-top:6px">Щороку — для днів народження та свят.</div></div>
+
+      <div class="field"><label>Нагадати (до ${S.MAX_ALERTS})</label>
+        <div class="chips">${alertChips}</div></div>
+
+      <div class="field"><label>Нотатка</label>
+        <textarea id="e-note" placeholder="Деталі…">${esc(d.note || '')}</textarea></div>
+
+      <div class="sheet-actions">
+        ${isEdit ? '<button class="btn danger" data-delevent>Видалити</button>' : ''}
+        <button class="btn primary" id="save-event">${isEdit ? 'Зберегти' : 'Додати'}</button>
+      </div>`;
+  }
+
+  function syncEventInputs() {
+    const sh = $('#sheet');
+    if ($('#e-title', sh)) draft.title = $('#e-title', sh).value;
+    if ($('#e-note', sh)) draft.note = $('#e-note', sh).value;
+    if ($('#e-date', sh)) draft.date = $('#e-date', sh).value;
+    if ($('#e-time', sh)) draft.time = $('#e-time', sh).value || '';
+  }
+
+  function saveEvent() {
+    syncEventInputs();
+    if (!draft.title.trim()) { toast('Вкажи назву події'); return; }
+    if (!draft.date) { toast('Обери дату'); return; }
+    const isNew = !draft.id;
+    const id = S.upsertReminder(draft);
+    closeSheet();
+    toast(isNew ? 'Подію додано' : 'Збережено');
+    renderEvents();
+    // одразу пропонуємо покласти в Календар — саме він і нагадає
+    if (isNew) setTimeout(() => shareICS([S.getReminder(id)]), 400);
+  }
+
+  /* Віддати подію системному Календарю. На iPhone відкриється «Поділитися»,
+     звідки файл іде в Календар разом з нагадуваннями. */
+  async function shareICS(list) {
+    if (!list.length) return;
+    const ics = S.buildICS(list);
+    const name = list.length === 1
+      ? `${list[0].title.replace(/[^\wа-яіїєґА-ЯІЇЄҐ ]+/gi, '').trim().slice(0, 40) || 'podiya'}.ics`
+      : `work-hub-events.ics`;
+    try {
+      const file = new File([ics], name, { type: 'text/calendar' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Додати в Календар' });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
+    const blob = new Blob([ics], { type: 'text/calendar' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast('Файл збережено — відкрий його, щоб додати в Календар');
   }
 
   /* ============================================================
@@ -1162,7 +1369,48 @@
     if (tab === 'stats') renderStats();
     if (tab === 'goals') renderGoals();
     if (tab === 'calendar') renderCalendar();
+    if (tab === 'events') renderEvents();
     window.scrollTo(0, 0);
+  }
+
+  /* ---------- Сповіщення в застосунку ----------
+     Працюють, поки застосунок відкритий. Коли він закритий, iOS
+     «морозить» сторінку — там нагадує Календар, куди ми віддали подію. */
+  function askNotifyPermission() {
+    if (!('Notification' in window)) { toast('Браузер не вміє сповіщень'); return; }
+    Notification.requestPermission().then((p) => {
+      renderEvents();
+      toast(p === 'granted' ? 'Сповіщення дозволено' : 'Сповіщення не дозволено');
+    });
+  }
+
+  function showEventNotification(item) {
+    const r = item.reminder;
+    const body = `${S.humanDate(S.nextEventDate(r))}${r.time ? ' о ' + r.time : ''} · ${S.alertLabel(item.minutes)}`;
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+        navigator.serviceWorker.ready.then((reg) => {
+          reg.showNotification(r.title, { body, tag: item.key, icon: 'assets/icons/icon.svg' });
+        }).catch(() => new Notification(r.title, { body }));
+      } else {
+        new Notification(r.title, { body });
+      }
+    } catch (e) { /* нічого не вдіємо */ }
+  }
+
+  function checkDueAlerts() {
+    const due = S.dueAlerts();
+    if (!due.length) return;
+    for (const item of due) {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        showEventNotification(item);
+      } else {
+        toast(`🔔 ${item.reminder.title} — ${S.alertLabel(item.minutes)}`);
+      }
+      playDoneSound();
+      S.markNotified(item.reminder.id, item.key);
+    }
+    if (currentTab === 'events') renderEvents();
   }
 
   function renderAll() {
@@ -1228,6 +1476,7 @@
     // FAB — залежно від вкладки
     $('#fab').addEventListener('click', () => {
       if (currentTab === 'goals') openGoalSheet();
+      else if (currentTab === 'events') openEventSheet();
       else openTaskSheet();
     });
 
@@ -1250,6 +1499,22 @@
       if (sub) { S.toggleSubtask(sub.dataset.task, sub.dataset.sub); renderTasks(); return; }
       const open = e.target.closest('[data-open]');
       if (open) { openTaskSheet(open.dataset.open); return; }
+    });
+
+    // Клік по екрану подій
+    $('#screen-events').addEventListener('click', (e) => {
+      if (Date.now() < suppressClickUntil) return;
+      const ics = e.target.closest('[data-ics]');
+      if (ics) { shareICS([S.getReminder(ics.dataset.ics)]); return; }
+      if (e.target.closest('#ics-all')) {
+        const t = S.todayStr();
+        shareICS(S.reminders().filter((r) => S.nextEventDate(r) >= t));
+        return;
+      }
+      if (e.target.closest('#toggle-past')) { showPastEvents = !showPastEvents; renderEvents(); return; }
+      if (e.target.closest('#ask-notify')) { askNotifyPermission(); return; }
+      const ed = e.target.closest('[data-editevent]');
+      if (ed) openEventSheet(ed.dataset.editevent);
     });
 
     // Клік по екрану цілей
@@ -1321,6 +1586,29 @@
     if (e.target.closest('#save-task')) { saveTask(); return; }
     if (e.target.closest('[data-deltask]')) {
       if (confirm('Видалити задачу?')) { S.deleteTask(draft.id); closeSheet(); toast('Видалено'); renderAll(); }
+      return;
+    }
+
+    // --- подія ---
+    const evArea = e.target.closest('[data-evarea]');
+    if (evArea) { syncEventInputs(); draft.area = evArea.dataset.evarea; renderEventSheet(!!draft.id); return; }
+    const yearly = e.target.closest('[data-yearly]');
+    if (yearly) { syncEventInputs(); draft.yearly = yearly.dataset.yearly === '1'; renderEventSheet(!!draft.id); return; }
+    const alert = e.target.closest('[data-alert]');
+    if (alert) {
+      syncEventInputs();
+      const m = +alert.dataset.alert;
+      const arr = draft.alerts || (draft.alerts = []);
+      const at = arr.indexOf(m);
+      if (at >= 0) arr.splice(at, 1);
+      else if (arr.length < S.MAX_ALERTS) arr.push(m);
+      else toast(`Максимум ${S.MAX_ALERTS} нагадування`);
+      arr.sort((a, b) => a - b);
+      renderEventSheet(!!draft.id); return;
+    }
+    if (e.target.closest('#save-event')) { saveEvent(); return; }
+    if (e.target.closest('[data-delevent]')) {
+      if (confirm('Видалити подію?')) { S.deleteReminder(draft.id); closeSheet(); toast('Видалено'); renderEvents(); }
       return;
     }
 
@@ -1419,6 +1707,11 @@
     setupDragAndDrop();
     setupAreaSwipe();
     setArea(S.area()); // відновлює обраний розділ і малює список
+
+    // нагадування перевіряємо при відкритті, при поверненні та раз на хвилину
+    checkDueAlerts();
+    setInterval(checkDueAlerts, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDueAlerts(); });
 
     // PWA service worker (тільки коли обслуговується через http/https)
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

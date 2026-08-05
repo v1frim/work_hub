@@ -475,6 +475,9 @@ body.dragging { cursor: grabbing; }
 .btn {
   flex: 1 1 0; min-width: 0; padding: 15px; border-radius: 14px; font-size: 16px; font-weight: 700; text-align: center;
 }
+/* посилання, що виглядає й поводиться як кнопка (підписка в Календарі) */
+a.btn { display: block; text-decoration: none; }
+.btn[disabled] { opacity: .45; }
 .btn.primary { background: var(--accent); color: #fff; }
 .btn.primary:active { filter: brightness(.94); }
 .btn.ghost { background: var(--card-2); color: var(--text); }

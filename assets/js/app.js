@@ -1313,9 +1313,13 @@
         <div id="cal-meta">оновлено: ${when} · подій: ${c.count}</div>
       </div>
       ${live ? '' : `<div class="section-hint bk-warn" style="margin:0 0 10px">Файл стрічки ще жодного разу не залився — посилання поки нікуди не веде. Натисни «Оновити стрічку зараз»: якщо все гаразд, зʼявиться «стрічку оновлено ✓».</div>`}
+      ${live
+        ? `<a class="btn primary" id="cal-subscribe" href="${esc(c.webcal)}" style="margin-bottom:10px">📆 Підписатись у Календарі</a>`
+        : `<button class="btn primary" disabled style="margin-bottom:10px">📆 Підписатись у Календарі</button>`}
+      <div class="section-hint" style="margin:0 0 10px">Одне натискання — Календар сам спитає «Підписатись». У вікні підписки лиши <b>«Вилучити сигнали» вимкненим</b>, інакше нагадування не спрацюють.</div>
       <div class="feed-url" id="cal-url">${esc(c.webcal)}</div>
-      <button class="btn primary" id="cal-copy" style="margin-bottom:10px" ${live ? '' : 'disabled'}>🔗 Скопіювати посилання</button>
-      <details class="howto"><summary>Як підписатись на iPhone (раз)</summary>
+      <button class="btn ghost" id="cal-copy" style="margin-bottom:10px" ${live ? '' : 'disabled'}>🔗 Скопіювати посилання</button>
+      <details class="howto"><summary>Якщо кнопка не спрацювала — вручну</summary>
         <ol>
           <li>Скопіюй посилання кнопкою вище.</li>
           <li>Налаштування → Програми → <b>Календар</b> → Облікові записи → <b>Додати обліковий запис</b> → <b>Інше</b> → <b>Додати передплачений календар</b>.</li>

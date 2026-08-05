@@ -80,7 +80,7 @@
     if (!res.ok) {
       let msg = `GitHub відповів ${res.status}`;
       if (res.status === 401) msg = 'Токен недійсний або протермінований';
-      else if (res.status === 403) msg = 'Токен не має прав на запис у цей репозиторій';
+      else if (res.status === 403) msg = 'Токен не має доступу саме до цього репозиторію: у налаштуваннях токена додай його в Repository access і дай Contents: Read and write';
       else if (res.status === 404) msg = 'Репозиторій або файл не знайдено';
       else if (res.status === 409 || res.status === 422) msg = 'Конфлікт версій — спробуй ще раз';
       throw new Error(msg);

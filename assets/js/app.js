@@ -1287,6 +1287,16 @@
         ${hasGitToken ? `<button class="link-btn" id="cal-usegit">Взяти токен від автокопії</button>` : ''}
         <button class="btn ghost" id="cal-enable" style="margin-top:10px">📆 Увімкнути синхронізацію</button>
         <div class="section-hint" style="margin-top:8px">Це той самий репозиторій, з якого відкривається застосунок, і той самий токен (право <b>Contents: Read and write</b>). Файл ляже за випадковою адресою — вгадати її неможливо, але це <b>публічне</b> посилання, тож таємниць у назвах подій краще не тримати.</div>
+        <details class="howto" style="margin-top:8px"><summary>Пише, що токен не має доступу?</summary>
+          <div style="margin-top:4px">Токен від автокопії виданий лише на репозиторій з копією — цього він не бачить. Треба додати:</div>
+          <ol>
+            <li>github.com → аватар → <b>Settings</b> → внизу <b>Developer settings</b>.</li>
+            <li><b>Personal access tokens</b> → <b>Fine-grained tokens</b> → відкрий свій токен.</li>
+            <li><b>Repository access</b> → <b>Only select repositories</b> → додай до списку ще й цей репозиторій.</li>
+            <li><b>Repository permissions</b> → <b>Contents</b> → <b>Read and write</b>.</li>
+            <li>Внизу — <b>Update</b>. Повернись сюди й натисни «Увімкнути» ще раз.</li>
+          </ol>
+        </details>
       </div>`;
     }
 

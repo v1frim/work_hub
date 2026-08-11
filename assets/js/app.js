@@ -19,6 +19,7 @@
     bell: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>',
     cal: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
     flag: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 15V3h13l-2 4 2 4H4M4 21v-6"/></svg>',
+    pencil: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19.5 8.5a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>',
   };
 
   const BUCKETS = [
@@ -940,12 +941,15 @@
     const done = ms.filter((m) => m.done).length;
     const prog = ms.length ? Math.round(done / ms.length * 100) : (g.done ? 100 : 0);
     const overdue = g.targetDate && g.targetDate < S.todayStr() && !g.done;
-    return `<div class="goal ${g.done ? 'done' : ''}" data-goal="${g.id}">
+    // редагування відкривається з будь-якого місця картки, крім кроків,
+    // а олівець у кутку показує, що ціль узагалі можна редагувати
+    return `<div class="goal ${g.done ? 'done' : ''}" data-goal="${g.id}" data-editgoal="${g.id}">
       <div class="g-head">
-        <div style="flex:1" data-editgoal="${g.id}">
-          <div class="g-title">${esc(g.title)}</div>
+        <div style="flex:1">
+          <div class="g-title">${g.done ? '✅ ' : ''}${esc(g.title)}</div>
           ${g.note ? `<div class="g-note">${esc(g.note)}</div>` : ''}
         </div>
+        <button class="g-edit" data-editgoal="${g.id}" aria-label="Редагувати ціль">${ICON.pencil}</button>
       </div>
       <div class="g-bar"><i style="width:${prog}%"></i></div>
       <div class="g-prog">${prog}% · ${done}/${ms.length || 0} кроків</div>
@@ -1277,8 +1281,14 @@
         <input type="text" id="g-title" enterkeyhint="done" value="${esc(d.title)}" placeholder="Чого хочеш досягти?"></div>
       <div class="field"><label>Опис</label>
         <textarea id="g-note" placeholder="Деталі…">${esc(d.note || '')}</textarea></div>
+      <div class="field"><label>Розділ</label>
+        <div class="chips">${Object.entries(S.AREAS).map(([k, v]) =>
+          `<button class="chip ${d.area === k ? 'on' : ''}" data-goalarea="${k}">
+            <span class="dot" style="background:${v.accent}"></span>${v.label}</button>`).join('')}</div></div>
       <div class="field"><label>Дедлайн</label>
         <input type="date" id="g-date" value="${d.targetDate || ''}"></div>
+      ${isEdit ? `<div class="field"><label>Стан</label>
+        <button class="btn ghost" id="g-done">${d.done ? '✅ Ціль досягнута — повернути в роботу' : '🏁 Позначити досягнутою'}</button></div>` : ''}
       <div class="field"><label>Кроки</label><div class="subedit" id="ms-edit">` +
         (d.milestones || []).map((m, i) => `<div class="row">
           <input type="text" data-msidx="${i}" value="${esc(m.title)}" placeholder="Крок ${i + 1}">
@@ -1305,9 +1315,11 @@
     syncGoalInputs();
     if (!draft.title.trim()) { toast('Вкажи назву цілі'); return; }
     draft.milestones = (draft.milestones || []).filter((m) => m.title.trim());
+    // ціль з іншого розділу зникне з поточного списку — попереджаємо, куди
+    const moved = draft.area && draft.area !== S.area() ? S.AREAS[draft.area].label : null;
     S.upsertGoal(draft);
     closeSheet();
-    toast('Збережено');
+    toast(moved ? `Збережено — ціль тепер у «${moved}»` : 'Збережено');
     renderGoals();
     renderDrawer();
   }
@@ -1901,6 +1913,9 @@
     }
 
     // --- ціль ---
+    const ga = e.target.closest('[data-goalarea]');
+    if (ga) { syncGoalInputs(); draft.area = ga.dataset.goalarea; renderGoalSheet(!!draft.id); return; }
+    if (e.target.closest('#g-done')) { syncGoalInputs(); draft.done = !draft.done; renderGoalSheet(!!draft.id); return; }
     if (e.target.closest('#add-ms')) { syncGoalInputs(); draft.milestones.push({ id: S.uid(), title: '', done: false }); renderGoalSheet(!!draft.id); return; }
     const delms = e.target.closest('[data-delms]');
     if (delms) { syncGoalInputs(); draft.milestones.splice(+delms.dataset.delms, 1); renderGoalSheet(!!draft.id); return; }

@@ -417,9 +417,18 @@ body.dragging { cursor: grabbing; }
 /* Ніщо всередині форми не може бути ширшим за неї */
 .sheet * { max-width: 100%; }
 .sheet.open { transform: translateY(0); }
-.sheet .grabber { width: 40px; height: 5px; background: var(--border); border-radius: 999px; margin: 4px auto 14px; }
-.sheet h2 { font-size: 20px; margin: 0 0 4px; }
-.sheet .close-x { position: absolute; right: 14px; top: 14px; width: 34px; height: 34px; border-radius: 50%; background: var(--card-2); display: grid; place-items: center; color: var(--text-dim); }
+/* Смужка вгорі — не декор, а підказка: за неї форму тягнуть униз, щоб
+   закрити. Тому робимо її помітною й даємо навколо запас для пальця. */
+.sheet .grabber { width: 48px; height: 5px; background: var(--text-faint); border-radius: 999px; margin: 6px auto 14px; }
+.sheet.dragging { transition: none; }
+.sheet h2 { font-size: 20px; margin: 0 0 4px; padding-right: 48px; }
+.sheet .close-x {
+  position: absolute; right: 12px; top: 10px; width: 42px; height: 42px;
+  border-radius: 50%; background: var(--card-2); border: 1.5px solid var(--border);
+  display: grid; place-items: center;
+  color: var(--text); font-size: 20px; font-weight: 700; line-height: 1;
+}
+.sheet .close-x:active { background: var(--border); }
 
 .field { margin-top: 16px; }
 .field > label { display: block; font-size: 13px; font-weight: 700; color: var(--text-dim); margin-bottom: 7px; text-transform: uppercase; letter-spacing: .4px; }

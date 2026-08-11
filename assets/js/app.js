@@ -1084,7 +1084,7 @@
       <h2>${isEdit ? 'Редагувати задачу' : 'Нова задача'}</h2>
 
       <div class="field"><label>Назва</label>
-        <input type="text" id="t-title" value="${esc(d.title)}" placeholder="Що потрібно зробити?" autocomplete="off"></div>
+        <input type="text" id="t-title" enterkeyhint="done" value="${esc(d.title)}" placeholder="Що потрібно зробити?" autocomplete="off"></div>
 
       <div class="field"><label>Розділ</label><div class="chips">${areaChips}</div></div>
       <div class="field"><label>Складність</label><div class="chips">${cxChips}</div></div>
@@ -1177,7 +1177,7 @@
       <div class="section-hint">Подію не треба виконувати — вона просто настає. Нагадування прийде у Календарі телефона.</div>
 
       <div class="field"><label>Що саме</label>
-        <input type="text" id="e-title" value="${esc(d.title)}" placeholder="Напр. День народження мами" autocomplete="off"></div>
+        <input type="text" id="e-title" enterkeyhint="done" value="${esc(d.title)}" placeholder="Напр. День народження мами" autocomplete="off"></div>
 
       <div class="field"><label>Розділ</label><div class="chips">${areaChips}</div></div>
 
@@ -1274,7 +1274,7 @@
       <button class="close-x" data-close>✕</button>
       <h2>${isEdit ? 'Редагувати ціль' : 'Нова ціль'}</h2>
       <div class="field"><label>Ціль</label>
-        <input type="text" id="g-title" value="${esc(d.title)}" placeholder="Чого хочеш досягти?"></div>
+        <input type="text" id="g-title" enterkeyhint="done" value="${esc(d.title)}" placeholder="Чого хочеш досягти?"></div>
       <div class="field"><label>Опис</label>
         <textarea id="g-note" placeholder="Деталі…">${esc(d.note || '')}</textarea></div>
       <div class="field"><label>Дедлайн</label>
@@ -1592,6 +1592,32 @@
   /* ============================================================
      КЕРУВАННЯ ШТОРКОЮ/МЕНЮ
      ============================================================ */
+  /* ---------- Форма над клавіатурою ----------
+     iOS не зменшує вікно, коли вилазить клавіатура: фіксована шторка
+     лишається прибитою до низу екрана й ховається під нею — саме тому
+     кнопка «Додати» ставала недосяжною. visualViewport каже, скільки
+     екрана з'їдено; на цю величину піднімаємо форму й тримаємо панель
+     кнопок на видноті. */
+  function setupKeyboardFit() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const apply = () => {
+      const sh = $('#sheet');
+      const inset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+      sh.style.setProperty('--kb', inset + 'px');
+      sh.style.setProperty('--vvh', vv.height + 'px');
+      sh.classList.toggle('kb', inset > 80); // 80px — щоб не рахувати панель Safari
+    };
+
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    // focusin/out ловить випадки, коли клавіатура з'явилась без resize
+    document.addEventListener('focusin', () => setTimeout(apply, 60));
+    document.addEventListener('focusout', () => setTimeout(apply, 60));
+    apply();
+  }
+
   /* opts.focus — селектор поля, у яке одразу стати курсором. На iPhone
      клавіатура відкривається лише в межах того самого дотику, що й відкрив
      форму, тому focus() робимо синхронно, без setTimeout. */
@@ -1957,6 +1983,17 @@
 
   // окремо: імпорт файлу (change)
   function bindLate() {
+    /* Enter у назві = зберегти. Найшвидший шлях: набрав і відправив,
+       не тягнучись до кнопки. Решта полів (нотатка) — багаторядкові,
+       там Enter лишається переносом рядка. */
+    $('#sheet').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.shiftKey) return;
+      const id = e.target && e.target.id;
+      if (id === 't-title') { e.preventDefault(); saveTask(); }
+      else if (id === 'e-title') { e.preventDefault(); saveEvent(); }
+      else if (id === 'g-title') { e.preventDefault(); saveGoal(); }
+    });
+
     $('#sheet').addEventListener('change', (e) => {
       if (e.target.id === 'import-file') {
         const file = e.target.files[0];
@@ -1996,6 +2033,7 @@
     setupDragAndDrop();
     setupAreaSwipe();
     setupSheetSwipe();
+    setupKeyboardFit();
     setArea(S.area()); // відновлює обраний розділ і малює список
 
     // нагадування перевіряємо при відкритті, при поверненні та раз на хвилину

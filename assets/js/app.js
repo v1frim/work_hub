@@ -131,6 +131,91 @@
     }
   }
 
+  /* ============================================================
+     ЗАКРИТИ ФОРМУ СВАЙПОМ УНИЗ
+
+     Як у системних шторках iOS: тягнеш форму згори вниз — вона їде за
+     пальцем і закривається. Знизу списку жест не заважає прокрутці:
+     тягнути можна або за «смужку»/заголовок, або коли форма вже
+     прокручена до самого верху.
+     ============================================================ */
+  const SHEET_CLOSE_PX = 110;  // після якого зсуву форма закривається
+  const SHEET_DECIDE = 8;      // після якого зсуву вирішуємо: тягнемо чи гортаємо
+  const SHEET_HEAD_PX = 70;    // верхня смуга форми, з якої тягнути можна завжди
+
+  const SHEET = { tracking: false, decided: null, startX: 0, startY: 0, dy: 0, fromHead: false, t0: 0 };
+
+  function setupSheetSwipe() {
+    const sh = $('#sheet');
+    sh.addEventListener('pointerdown', onSheetDown);
+    sh.addEventListener('pointermove', onSheetMove, { passive: false });
+    sh.addEventListener('pointerup', onSheetUp);
+    sh.addEventListener('pointercancel', onSheetUp);
+    // iOS зупиняє власну прокрутку лише від не-пасивного touchmove
+    sh.addEventListener('touchmove', (e) => { if (SHEET.decided === 'drag') e.preventDefault(); }, { passive: false });
+  }
+
+  function onSheetDown(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const sh = $('#sheet');
+    if (!sh.classList.contains('open')) return;
+    // у полях уводу палець виділяє текст, а не тягне форму
+    if (e.target.closest('input, textarea, select')) return;
+    SHEET.tracking = true;
+    SHEET.decided = null;
+    SHEET.startX = e.clientX;
+    SHEET.startY = e.clientY;
+    SHEET.dy = 0;
+    SHEET.t0 = Date.now();
+    SHEET.fromHead = !!e.target.closest('.grabber, h2, .close-x')
+      || (e.clientY - sh.getBoundingClientRect().top) < SHEET_HEAD_PX;
+  }
+
+  function onSheetMove(e) {
+    if (!SHEET.tracking) return;
+    const sh = $('#sheet');
+    const dy = e.clientY - SHEET.startY;
+    const dx = e.clientX - SHEET.startX;
+
+    if (!SHEET.decided) {
+      if (dy < SHEET_DECIDE) {
+        // вгору або вбік — це не наш жест
+        if (dy < -SHEET_DECIDE || Math.abs(dx) > SHEET_DECIDE) SHEET.tracking = false;
+        return;
+      }
+      if (Math.abs(dx) > dy) { SHEET.tracking = false; return; }
+      // з середини форми тягнемо лише коли вона вже вгорі — інакше це прокрутка
+      if (!SHEET.fromHead && sh.scrollTop > 0) { SHEET.tracking = false; return; }
+      SHEET.decided = 'drag';
+      sh.classList.add('dragging');
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    }
+
+    e.preventDefault();
+    SHEET.dy = dy;
+    sh.style.transform = `translateY(${dy}px)`;
+    $('#sheet-backdrop').style.opacity = String(Math.max(0, 1 - dy / 420));
+  }
+
+  function onSheetUp() {
+    if (!SHEET.tracking) return;
+    const sh = $('#sheet');
+    const dy = SHEET.dy;
+    const decided = SHEET.decided;
+    const flick = dy > 45 && (Date.now() - SHEET.t0) < 260; // різкий короткий рух теж закриває
+
+    SHEET.tracking = false;
+    SHEET.decided = null;
+    SHEET.dy = 0;
+    sh.classList.remove('dragging');
+    $('#sheet-backdrop').style.opacity = '';
+    if (decided !== 'drag') return;
+
+    suppressClickUntil = Date.now() + 350; // після жесту браузер ще шле click
+    if (dy > SHEET_CLOSE_PX || flick) closeSheet();
+    else sh.style.transform = '';
+  }
+
   // Куди веде свайп: dx < 0 (вліво) — далі по списку розділів, dx > 0 — назад
   function nextArea(dx) {
     const i = AREA_ORDER.indexOf(S.area());
@@ -937,7 +1022,8 @@
       subtasks: [], recurrence: { type: 'once' }, bucket: 'today', dueDate: null, remindAt: null,
     };
     renderTaskSheet(!!existing);
-    openSheet();
+    // нова задача починається з назви — одразу даємо писати
+    openSheet(existing ? null : { focus: '#t-title' });
   }
 
   function renderTaskSheet(isEdit) {
@@ -1071,7 +1157,7 @@
       time: '', yearly: false, alerts: [1440],
     };
     renderEventSheet(!!existing);
-    openSheet();
+    openSheet(existing ? null : { focus: '#e-title' });
   }
 
   function renderEventSheet(isEdit) {
@@ -1178,7 +1264,7 @@
     const existing = id ? S.getGoal(id) : null;
     draft = existing ? JSON.parse(JSON.stringify(existing)) : { title: '', note: '', area: S.area(), targetDate: null, milestones: [] };
     renderGoalSheet(!!existing);
-    openSheet();
+    openSheet(existing ? null : { focus: '#g-title' });
   }
 
   function renderGoalSheet(isEdit) {
@@ -1506,8 +1592,29 @@
   /* ============================================================
      КЕРУВАННЯ ШТОРКОЮ/МЕНЮ
      ============================================================ */
-  function openSheet() { $('#sheet').classList.add('open'); $('#sheet-backdrop').classList.add('open'); }
-  function closeSheet() { $('#sheet').classList.remove('open'); $('#sheet-backdrop').classList.remove('open'); draft = null; }
+  /* opts.focus — селектор поля, у яке одразу стати курсором. На iPhone
+     клавіатура відкривається лише в межах того самого дотику, що й відкрив
+     форму, тому focus() робимо синхронно, без setTimeout. */
+  function openSheet(opts) {
+    const sh = $('#sheet');
+    sh.style.transform = '';        // прибираємо слід від свайпу вниз
+    sh.scrollTop = 0;
+    sh.classList.add('open');
+    $('#sheet-backdrop').classList.add('open');
+    const sel = opts && opts.focus;
+    if (sel) {
+      const el = $(sel, sh);
+      if (el) { try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); } }
+    }
+  }
+
+  function closeSheet() {
+    const sh = $('#sheet');
+    sh.style.transform = '';
+    sh.classList.remove('open');
+    $('#sheet-backdrop').classList.remove('open');
+    draft = null;
+  }
   function openDrawer() { renderDrawer(); $('#drawer').classList.add('open'); $('#drawer-backdrop').classList.add('open'); }
   function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawer-backdrop').classList.remove('open'); }
 
@@ -1694,6 +1801,7 @@
   }
 
   function onSheetClick(e) {
+    if (Date.now() < suppressClickUntil) return; // щойно тягнули форму — це не клік
     if (e.target.closest('[data-close]')) { closeSheet(); return; }
 
     // --- задача ---
@@ -1887,6 +1995,7 @@
     bindLiveStatus();
     setupDragAndDrop();
     setupAreaSwipe();
+    setupSheetSwipe();
     setArea(S.area()); // відновлює обраний розділ і малює список
 
     // нагадування перевіряємо при відкритті, при поверненні та раз на хвилину
